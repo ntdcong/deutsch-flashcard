@@ -109,6 +109,7 @@ $vocab = $vocabs[$index];
         padding: 20px 15px;
     }
 
+    
     .flashcard {
         perspective: 1000px;
         max-width: 420px;
@@ -309,13 +310,10 @@ $vocab = $vocabs[$index];
         </div>
     </div>
 
-    <button class="btn btn-outline-primary mb-3" onclick="flipCard()">
-        <i class="bi bi-arrow-repeat"></i> Lật thẻ
-    </button>
-
     <div class="d-inline-block">
-        <button id="btn-known" class="btn btn-success me-2"><i class="bi bi-check-circle"></i> Đã biết</button>
         <button id="btn-unknown" class="btn btn-warning text-dark"><i class="bi bi-question-circle"></i> Chưa biết</button>
+        <button class="btn btn-outline-primary" onclick="flipCard()"><i class="bi bi-arrow-repeat"></i> Lật thẻ</button>
+        <button id="btn-known" class="btn btn-success"><i class="bi bi-check-circle"></i> Đã biết</button>
     </div>
 
     <div class="mt-4">

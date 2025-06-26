@@ -118,21 +118,10 @@ $notebooks = $stmt->fetchAll();
                             </a>
                         </div>
 
-                        <div class="dropdown action-dropdown mt-auto">
-                            <button class="btn btn-outline-secondary dropdown-toggle w-100" type="button" data-bs-toggle="dropdown">
-                                <i class="bi bi-list"></i> Hành động
-                            </button>
-                            <ul class="dropdown-menu w-100">
-                                <li><a class="dropdown-item" href="add_vocab.php?notebook_id=<?= $nb['id'] ?>">
-                                    <i class="bi bi-pencil-square"></i> Quản lý từ</a></li>
-                                <li><a class="dropdown-item" href="import_excel.php?notebook_id=<?= $nb['id'] ?>">
-                                    <i class="bi bi-file-earmark-excel"></i> Import Excel</a></li>
-                                <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#editModal<?= $nb['id'] ?>">
-                                    <i class="bi bi-pencil"></i> Sửa sổ tay</button></li>
-                                <li><a class="dropdown-item text-danger" href="?delete=<?= $nb['id'] ?>" onclick="return confirm('Bạn có chắc chắn muốn xoá sổ tay này?');">
-                                    <i class="bi bi-trash"></i> Xoá</a></li>
-                            </ul>
-                        </div>
+                        <!-- Nút mở modal hành động -->
+                        <button class="btn btn-outline-secondary w-100 mt-auto" data-bs-toggle="modal" data-bs-target="#actionModal<?= $nb['id'] ?>">
+                            <i class="bi bi-list"></i> Tuỳ chọn
+                        </button>
                     </div>
                 </div>
             </div>
@@ -161,6 +150,35 @@ $notebooks = $stmt->fetchAll();
                             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
                         </div>
                     </form>
+                </div>
+            </div>
+
+            <!-- Modal hành động -->
+            <div class="modal fade" id="actionModal<?= $nb['id'] ?>" tabindex="-1">
+                <div class="modal-dialog">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">Tuỳ chọn cho "<?= htmlspecialchars($nb['title']) ?>"</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body d-grid gap-2">
+                            <a href="add_vocab.php?notebook_id=<?= $nb['id'] ?>" class="btn btn-outline-primary">
+                                <i class="bi bi-pencil-square"></i> Quản lý từ
+                            </a>
+                            <a href="import_excel.php?notebook_id=<?= $nb['id'] ?>" class="btn btn-outline-success">
+                                <i class="bi bi-file-earmark-excel"></i> Import Excel
+                            </a>
+                            <button class="btn btn-outline-warning" data-bs-dismiss="modal" data-bs-toggle="modal" data-bs-target="#editModal<?= $nb['id'] ?>">
+                                <i class="bi bi-pencil"></i> Sửa sổ tay
+                            </button>
+                            <a href="?delete=<?= $nb['id'] ?>" class="btn btn-outline-danger" onclick="return confirm('Bạn có chắc chắn muốn xoá sổ tay này?');">
+                                <i class="bi bi-trash"></i> Xoá
+                            </a>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Đóng</button>
+                        </div>
+                    </div>
                 </div>
             </div>
         <?php endforeach; ?>
