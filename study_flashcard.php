@@ -17,33 +17,20 @@ if (!$notebook) {
     die('Không tìm thấy sổ tay hoặc bạn không có quyền truy cập!');
 }
 
-// API endpoints cho AJAX
-if (isset($_GET['action'])) {
+// Lấy tất cả từ vựng một lần để tải trước
+$stmt = $pdo->prepare('SELECT v.*, ls.status FROM vocabularies v
+    LEFT JOIN learning_status ls ON v.id = ls.vocab_id AND ls.user_id = ?
+    WHERE v.notebook_id = ? ORDER BY v.created_at DESC');
+$stmt->execute([$user_id, $notebook_id]);
+$all_vocabs = $stmt->fetchAll();
+
+// API để cập nhật trạng thái vẫn giữ nguyên
+if (isset($_GET['action']) && $_GET['action'] === 'update_status' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     header('Content-Type: application/json');
-    if ($_GET['action'] === 'get_vocab') {
-        $index = (int)($_GET['index'] ?? 0);
-        $stmt = $pdo->prepare('SELECT v.*, ls.status FROM vocabularies v
-            LEFT JOIN learning_status ls ON v.id = ls.vocab_id AND ls.user_id = ?
-            WHERE v.notebook_id = ? ORDER BY v.created_at DESC');
-        $stmt->execute([$user_id, $notebook_id]);
-        $vocabs = $stmt->fetchAll();
-        if (!$vocabs) {
-            echo json_encode(['error' => 'Sổ tay chưa có từ vựng!']);
-            exit;
-        }
-        $index = max(0, min($index, count($vocabs) - 1));
-        $vocab = $vocabs[$index];
-        echo json_encode([
-            'vocab' => $vocab,
-            'index' => $index,
-            'total' => count($vocabs),
-            'notebook_title' => $notebook['title']
-        ]);
-        exit;
-    }
-    if ($_GET['action'] === 'update_status' && $_POST) {
-        $vocab_id = (int)$_POST['vocab_id'];
-        $status = $_POST['status'] === 'known' ? 'known' : 'unknown';
+    $vocab_id = (int)($_POST['vocab_id'] ?? 0);
+    $status = $_POST['status'] === 'known' ? 'known' : 'unknown';
+
+    if ($vocab_id > 0) {
         $stmt = $pdo->prepare('SELECT id FROM learning_status WHERE user_id=? AND vocab_id=?');
         $stmt->execute([$user_id, $vocab_id]);
         if ($stmt->fetch()) {
@@ -53,217 +40,133 @@ if (isset($_GET['action'])) {
             $pdo->prepare('INSERT INTO learning_status (user_id, vocab_id, status, last_reviewed) VALUES (?, ?, ?, NOW())')
                 ->execute([$user_id, $vocab_id, $status]);
         }
-        echo json_encode(['success' => true]);
+        echo json_encode(['success' => true, 'message' => 'Cập nhật thành công.']);
         exit;
     }
+    echo json_encode(['success' => false, 'message' => 'Thiếu ID từ vựng.']);
+    exit;
 }
 
-// Lấy danh sách từ vựng
-$stmt = $pdo->prepare('SELECT v.*, ls.status FROM vocabularies v
-    LEFT JOIN learning_status ls ON v.id = ls.vocab_id AND ls.user_id = ?
-    WHERE v.notebook_id = ? ORDER BY v.created_at DESC');
-$stmt->execute([$user_id, $notebook_id]);
-$vocabs = $stmt->fetchAll();
-if (!$vocabs) {
-    die('Sổ tay chưa có từ vựng!');
-}
-
-// Xác định từ đang học
-$index = isset($_GET['i']) ? (int)$_GET['i'] : 0;
-$index = max(0, min($index, count($vocabs) - 1));
-$vocab = $vocabs[$index];
 ?>
 <!DOCTYPE html>
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
-    <title>Học Flashcard</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Học Flashcard - Trải nghiệm mới</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 
-    <!-- Bootstrap + Icons -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
 
     <style>
-    :root {
-        --primary-bg: linear-gradient(to right, #e0eafc, #cfdef3);
-        --card-radius: 1.25rem;
-        --card-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
-        --transition: all 0.4s ease;
-        --btn-radius: 0.8rem;
-    }
+        :root {
+            --primary-bg: linear-gradient(to right, #e0eafc, #cfdef3);
+            --card-radius: 1.25rem;
+            --card-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            --transition-speed: 0.5s;
+        }
 
-    body {
-        background: var(--primary-bg);
-        font-family: "Segoe UI", sans-serif;
-        margin: 0;
-        padding: 0;
-    }
+        body {
+            background: var(--primary-bg);
+            font-family: "Segoe UI", sans-serif;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
 
-    .navbar {
-        background-color: #fff !important;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-    }
+        .navbar {
+            background-color: #fff !important;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            flex-shrink: 0;
+        }
 
-    .container {
-        padding: 20px 15px;
-    }
-
-    
-    .flashcard {
-        perspective: 1000px;
-        max-width: 420px;
-        margin: 30px auto;
-        position: relative;
-    }
-
-    .card-inner {
-        width: 100%;
-        height: 280px;
-        position: relative;
-        transform-style: preserve-3d;
-        transition: var(--transition);
-    }
-
-    .flipped .card-inner {
-        transform: rotateY(180deg);
-    }
-
-    .card-front, .card-back {
-        position: absolute;
-        width: 100%;
-        height: 100%;
-        border-radius: var(--card-radius);
-        backface-visibility: hidden;
-        background: #fff;
-        box-shadow: var(--card-shadow);
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        padding: 2rem;
-        text-align: center;
-    }
-
-    .card-front {
-        z-index: 2;
-    }
-
-    .card-back {
-        transform: rotateY(180deg);
-        text-align: left;
-        font-size: 1rem;
-        padding: 2rem 1.5rem;
-        line-height: 1.6;
-    }
-
-    .card-front #word-display {
-        font-size: 2rem;
-        font-weight: 600;
-        color: #2d3748;
-        margin-bottom: 10px;
-    }
-
-    .card-front #phonetic {
-        font-size: 1rem;
-        color: #718096;
-        font-style: italic;
-    }
-
-    .btn-audio {
-        font-size: 0.9rem;
-        padding: 8px 14px;
-        border-radius: 50px;
-        margin-top: 10px;
-    }
-
-    .btn {
-        transition: var(--transition);
-        border-radius: var(--btn-radius);
-    }
-
-    .btn:hover {
-        transform: translateY(-1px);
-    }
-
-    .badge {
-        font-size: 0.95rem;
-        padding: 5px 10px;
-        border-radius: 0.6rem;
-    }
-
-    #status-badge {
-        margin-left: 10px;
-    }
-
-    .btn-known {
-        background: linear-gradient(135deg, #38a169, #48bb78);
-        color: #fff;
-        border: none;
-    }
-
-    .btn-unknown {
-        background: linear-gradient(135deg, #ed8936, #f6ad55);
-        color: #fff;
-        border: none;
-    }
-
-    .btn-known:hover,
-    .btn-unknown:hover {
-        opacity: 0.9;
-    }
-
-    .mt-4 button {
-        min-width: 120px;
-    }
-
-    @media (max-width: 576px) {
-        .container {
-            padding: 10px 8px;
+        .main-content {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px 15px;
+            overflow-y: auto;
+        }
+        
+        .card-stack-container {
+            perspective: 2000px;
+            width: 100%;
+            max-width: 420px;
+            min-height: 280px;
+            margin: 20px auto;
+            position: relative;
         }
 
         .flashcard {
-            max-width: 95vw;
+            width: 100%;
+            height: 280px;
+            position: absolute;
+            top: 0;
+            left: 0;
+            cursor: grab;
+            user-select: none;
+            transform-style: preserve-3d;
+            transition: transform var(--transition-speed) ease, opacity var(--transition-speed) ease;
         }
 
+        .flashcard.dragging { transition: none; }
+        .flashcard.card--next { transform: translateY(10px) scale(0.95); opacity: 0.7; pointer-events: none; }
+        .flashcard.card--after-next { transform: translateY(20px) scale(0.90); opacity: 0.4; pointer-events: none; }
+        .flashcard.card--out { pointer-events: none; }
+        
         .card-inner {
-            height: 220px;
+            width: 100%; height: 100%; position: relative;
+            transform-style: preserve-3d;
+            transition: transform 0.6s cubic-bezier(0.25, 1, 0.5, 1);
         }
+
+        .flashcard.flipped .card-inner { transform: rotateY(180deg); }
 
         .card-front, .card-back {
-            padding: 1.2rem;
-            font-size: 1rem;
+            position: absolute; width: 100%; height: 100%;
+            border-radius: var(--card-radius);
+            backface-visibility: hidden;
+            background: #fff; box-shadow: var(--card-shadow);
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            padding: 2rem; text-align: center; overflow: hidden;
         }
 
-        .card-front #word-display {
-            font-size: 1.6rem;
+        .card-back {
+            transform: rotateY(180deg); text-align: left;
+            font-size: 1rem; padding: 1.5rem; line-height: 1.6;
+            justify-content: flex-start; overflow-y: auto;
+            align-items: center; justify-content: center;
+            padding: 2rem; text-align: center; overflow: hidden;
+        }
+        .card-back > div { margin-bottom: 8px; }
+        .card-front #word-display { font-size: 2rem; font-weight: 600; }
+        
+        .swipe-indicator {
+            position: absolute; top: 20px; border-radius: 10px;
+            padding: 5px 15px; font-weight: bold; color: #fff;
+            opacity: 0; transition: opacity 0.2s ease-in-out;
+            text-transform: uppercase;
+        }
+        .swipe-indicator.left {
+            right: 20px; background-color: rgba(237, 137, 54, 0.8);
+            border: 2px solid #ed8936; transform: rotate(15deg);
+        }
+         .swipe-indicator.right {
+            left: 20px; background-color: rgba(56, 161, 105, 0.8);
+            border: 2px solid #38a169; transform: rotate(-15deg);
         }
 
-        .btn-audio {
-            font-size: 0.8rem;
-            padding: 6px 10px;
+        @media (max-width: 576px) {
+            .card-stack-container { min-height: 250px; }
+            .flashcard { height: 250px; }
+            .card-front #word-display { font-size: 1.6rem; }
         }
-
-        .btn {
-            font-size: 0.9rem;
-        }
-        .swipe-left {
-            animation: swipeLeft 0.4s ease forwards;
-        }
-        .swipe-right {
-            animation: swipeRight 0.4s ease forwards;
-        }
-        @keyframes swipeLeft {
-            0% { transform: translateX(0) rotate(0deg); opacity: 1; }
-            100% { transform: translateX(-150%) rotate(-15deg); opacity: 0; }
-        }
-        @keyframes swipeRight {
-            0% { transform: translateX(0) rotate(0deg); opacity: 1; }
-            100% { transform: translateX(150%) rotate(15deg); opacity: 0; }
-        }
-    }
-</style>
-
+    </style>
 </head>
 <body>
 
@@ -274,152 +177,300 @@ $vocab = $vocabs[$index];
     </div>
 </nav>
 
-<div class="container mt-4 text-center">
-    <h3 class="mb-3">📖 Học Flashcard</h3>
+<!-- Dữ liệu từ vựng được truyền an toàn tại đây -->
+<script type="application/json" id="vocab-data">
+    <?= json_encode($all_vocabs, JSON_UNESCAPED_UNICODE) ?>
+</script>
 
-    <div class="mb-3">
-        <span class="badge bg-secondary" id="progress-badge">Từ <?= $index+1 ?>/<?= count($vocabs) ?></span>
-        <span id="status-badge">
-        <?php if ($vocab['status'] === 'known'): ?>
-            <span class="badge bg-success">Đã biết</span>
-        <?php elseif ($vocab['status'] === 'unknown'): ?>
-            <span class="badge bg-warning text-dark">Chưa biết</span>
-        <?php endif; ?>
-        </span>
+
+<div class="main-content">
+    <h3 class="mb-2">📖 Học Flashcard</h3>
+
+    <div class="mb-2 text-center">
+        <span class="badge bg-secondary" id="progress-badge"></span>
+        <span id="status-badge" class="ms-2"></span>
     </div>
 
-    <div class="flashcard" id="flashcard">
-        <div class="card-inner" id="cardInner">
-            <div class="card-front">
-                <div id="word-display"><?= htmlspecialchars($vocab['word']) ?></div>
-                <?php if ($vocab['phonetic']): ?>
-                    <div class="text-muted" id="phonetic" style="font-size: 1rem;">[<?= htmlspecialchars($vocab['phonetic']) ?>]</div>
-                <?php else: ?>
-                    <div id="phonetic"></div>
-                <?php endif; ?>
-                <button onclick="speakWord(document.getElementById('word-display').textContent)" class="btn btn-sm btn-outline-primary mt-2 btn-audio">
-                    <i class="bi bi-volume-up"></i> Nghe phát âm
-                </button>
-            </div>
-            <div class="card-back">
-                <div><strong>Nghĩa:</strong> <span id="meaning"><?= nl2br(htmlspecialchars($vocab['meaning'])) ?></span></div>
-                <div id="note"><?php if ($vocab['note']): ?><strong>Ghi chú:</strong> <?= nl2br(htmlspecialchars($vocab['note'])) ?><?php endif; ?></div>
-                <div id="plural"><?php if ($vocab['plural']): ?><strong>Số nhiều:</strong> <?= htmlspecialchars($vocab['plural']) ?><?php endif; ?></div>
-                <div id="genus"><?php if ($vocab['genus']): ?><strong>Giống:</strong> <?= htmlspecialchars($vocab['genus']) ?><?php endif; ?></div>
-            </div>
+    <div class="card-stack-container" id="cardStackContainer">
+        <div class="card-stack" id="cardStack">
+            <!-- Các thẻ flashcard sẽ được JS chèn vào đây -->
         </div>
     </div>
 
-    <div class="d-inline-block">
-        <button id="btn-unknown" class="btn btn-warning text-dark"><i class="bi bi-question-circle"></i> Chưa biết</button>
-        <button class="btn btn-outline-primary" onclick="flipCard()"><i class="bi bi-arrow-repeat"></i> Lật thẻ</button>
-        <button id="btn-known" class="btn btn-success"><i class="bi bi-check-circle"></i> Đã biết</button>
+    <div class="d-flex justify-content-center align-items-center mt-3" style="gap: 15px;">
+        <button id="btn-unknown" class="btn btn-warning text-dark btn-lg"><i class="bi bi-x-lg"></i></button>
+        <button id="btn-flip" class="btn btn-outline-primary"><i class="bi bi-arrow-repeat"></i> Lật thẻ</button>
+        <button id="btn-known" class="btn btn-success btn-lg"><i class="bi bi-check-lg"></i></button>
     </div>
 
     <div class="mt-4">
         <button id="btn-prev" class="btn btn-outline-secondary me-2"><i class="bi bi-chevron-left"></i> Trước</button>
         <button id="btn-next" class="btn btn-outline-secondary">Tiếp <i class="bi bi-chevron-right"></i></button>
     </div>
+
+    <div class="text-center text-muted mt-3" style="font-size: 0.95rem;">
+        Vuốt thẻ sang <strong>trái</strong> để đánh dấu <span class="text-warning fw-bold">chưa biết</span>, 
+        vuốt thẻ sang <strong>phải</strong> để đánh dấu <span class="text-success fw-bold">đã biết</span>.
+    </div>
+
 </div>
 
-<!-- Scripts -->
 <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
 <script>
-const notebookId = <?= $notebook_id ?>;
-let currentIndex = <?= $index ?>;
-let totalVocabs = <?= count($vocabs) ?>;
-let isFlipped = false;
+document.addEventListener('DOMContentLoaded', function() {
+    // --- KHỞI TẠO BIẾN ---
+    const notebookId = <?= $notebook_id ?>;
+    let allVocabs = [];
+    let currentIndex = 0;
+    let isAnimating = false;
 
-function flipCard() {
-    document.getElementById('flashcard').classList.toggle('flipped');
-    isFlipped = !isFlipped;
-}
+    // Lấy dữ liệu an toàn từ thẻ script JSON
+    try {
+        const vocabDataElement = document.getElementById('vocab-data');
+        allVocabs = JSON.parse(vocabDataElement.textContent);
+    } catch (e) {
+        console.error("Lỗi khi đọc dữ liệu từ vựng:", e);
+    }
 
-function speakWord(text) {
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'de-DE'; // tiếng Đức
-    speechSynthesis.speak(utterance);
-}
+    // Xác định chỉ số bắt đầu từ URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const initialIndexParam = parseInt(urlParams.get('i'), 10);
+    if (!isNaN(initialIndexParam) && initialIndexParam >= 0 && initialIndexParam < allVocabs.length) {
+        currentIndex = initialIndexParam;
+    }
 
-async function loadVocab(index) {
-    const res = await fetch(`?action=get_vocab&index=${index}&notebook_id=${notebookId}`);
-    const data = await res.json();
-    if (data.error) return alert(data.error);
-    // Cập nhật giao diện
-    document.getElementById('word-display').textContent = data.vocab.word;
-    document.getElementById('phonetic').textContent = data.vocab.phonetic ? `[${data.vocab.phonetic}]` : '';
-    document.getElementById('meaning').innerHTML = escapeHtml(data.vocab.meaning);
-    document.getElementById('note').innerHTML = data.vocab.note ? `<strong>Ghi chú:</strong> ${escapeHtml(data.vocab.note)}` : '';
-    document.getElementById('plural').innerHTML = data.vocab.plural ? `<strong>Số nhiều:</strong> ${escapeHtml(data.vocab.plural)}` : '';
-    document.getElementById('genus').innerHTML = data.vocab.genus ? `<strong>Giống:</strong> ${escapeHtml(data.vocab.genus)}` : '';
-    document.getElementById('progress-badge').textContent = `Từ ${data.index+1}/${data.total}`;
-    let statusHtml = '';
-    if (data.vocab.status === 'known') statusHtml = '<span class="badge bg-success">Đã biết</span>';
-    else if (data.vocab.status === 'unknown') statusHtml = '<span class="badge bg-warning text-dark">Chưa biết</span>';
-    document.getElementById('status-badge').innerHTML = statusHtml;
-    currentIndex = data.index;
-    totalVocabs = data.total;
-    // Reset flip nếu đang lật
-    const flashcard = document.getElementById('flashcard');
-    if (isFlipped) { flashcard.classList.remove('flipped'); isFlipped = false; }
-}
 
-function escapeHtml(text) {
-    if (!text) return '';
-    return text.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
-}
+    const cardStack = document.getElementById('cardStack');
+    const progressBadge = document.getElementById('progress-badge');
+    const statusBadge = document.getElementById('status-badge');
 
-document.getElementById('btn-prev').onclick = () => {
-    let idx = (currentIndex - 1 + totalVocabs) % totalVocabs;
-    loadVocab(idx);
-};
+    // --- CÁC HÀM QUẢN LÝ THẺ ---
 
-document.getElementById('btn-next').onclick = () => {
-    let idx = (currentIndex + 1) % totalVocabs;
-    loadVocab(idx);
-};
+    function createCardElement(vocab, index) {
+        const card = document.createElement('div');
+        card.className = 'flashcard';
+        card.dataset.index = index;
+        card.dataset.id = vocab.id;
 
-document.getElementById('btn-known').onclick = () => updateStatus('known');
-document.getElementById('btn-unknown').onclick = () => updateStatus('unknown');
+        card.innerHTML = `
+            <div class="swipe-indicator left">Chưa biết</div>
+            <div class="swipe-indicator right">Đã biết</div>
+            <div class="card-inner">
+                <div class="card-front">
+                    <div>${escapeHtml(vocab.word)}</div>
+                    ${vocab.phonetic ? `<div class="text-muted" style="font-size: 1rem;">[${escapeHtml(vocab.phonetic)}]</div>` : ''}
+                    <button class="btn btn-sm btn-outline-primary mt-2 btn-audio">
+                        <i class="bi bi-volume-up"></i> Nghe
+                    </button>
+                </div>
+                <div class="card-back">
+                    <div><strong>Nghĩa:</strong> ${nl2br(escapeHtml(vocab.meaning))}</div>
+                    ${vocab.note ? `<div><strong>Ghi chú:</strong> ${nl2br(escapeHtml(vocab.note))}</div>` : ''}
+                    ${vocab.plural ? `<div><strong>Số nhiều:</strong> ${escapeHtml(vocab.plural)}</div>` : ''}
+                    ${vocab.genus ? `<div><strong>Giống:</strong> ${escapeHtml(vocab.genus)}</div>` : ''}
+                </div>
+            </div>
+        `;
+        card.querySelector('.btn-audio').addEventListener('click', (e) => {
+            e.stopPropagation();
+            speakWord(vocab.word);
+        });
+        return card;
+    }
 
-async function updateStatus(status) {
-    const vocab = document.getElementById('word-display').textContent;
-    // Lấy id từ server (an toàn hơn là client lưu id)
-    const res = await fetch(`?action=get_vocab&index=${currentIndex}&notebook_id=${notebookId}`);
-    const data = await res.json();
-    if (!data.vocab) return;
-    await fetch(`?action=update_status&notebook_id=${notebookId}`, {
-        method: 'POST',
-        body: new URLSearchParams({ vocab_id: data.vocab.id, status })
+    function updateCardStack() {
+        cardStack.innerHTML = ''; 
+        
+        const cardsToCreate = [];
+        if (allVocabs[currentIndex]) {
+            cardsToCreate.push({vocab: allVocabs[currentIndex], index: currentIndex});
+        }
+        const nextIndex = (currentIndex + 1) % allVocabs.length;
+        if (allVocabs.length > 1 && nextIndex !== currentIndex) {
+             cardsToCreate.push({vocab: allVocabs[nextIndex], index: nextIndex});
+        }
+        const afterNextIndex = (currentIndex + 2) % allVocabs.length;
+         if (allVocabs.length > 2 && afterNextIndex !== currentIndex && afterNextIndex !== nextIndex) {
+             cardsToCreate.push({vocab: allVocabs[afterNextIndex], index: afterNextIndex});
+        }
+
+        cardsToCreate.reverse().forEach((data, i) => {
+            const cardEl = createCardElement(data.vocab, data.index);
+            if (i === 1) cardEl.classList.add('card--next');
+            if (i === 0) cardEl.classList.add('card--after-next');
+            cardStack.appendChild(cardEl);
+        });
+
+        if (cardStack.children.length > 0) {
+            setupHammer(cardStack.lastChild);
+        }
+        updateUI();
+    }
+    
+    function updateUI() {
+        if (!allVocabs[currentIndex]) return;
+        progressBadge.textContent = `Từ ${currentIndex + 1}/${allVocabs.length}`;
+        const currentVocab = allVocabs[currentIndex];
+        let statusHtml = '';
+        if (currentVocab.status === 'known') {
+            statusHtml = '<span class="badge bg-success">Đã biết</span>';
+        } else if (currentVocab.status === 'unknown') {
+            statusHtml = '<span class="badge bg-warning text-dark">Chưa biết</span>';
+        }
+        statusBadge.innerHTML = statusHtml;
+    }
+
+    // --- XỬ LÝ VUỐT (HAMMER.JS) ---
+
+    function setupHammer(element) {
+        const mc = new Hammer(element);
+
+        mc.on('panstart', () => element.classList.add('dragging'));
+
+        mc.on('pan', (e) => {
+            element.style.transform = `translate(${e.deltaX}px, ${e.deltaY}px) rotate(${e.deltaX / 20}deg)`;
+            
+            element.querySelector('.swipe-indicator.right').style.opacity = Math.max(0, e.deltaX / 100);
+            element.querySelector('.swipe-indicator.left').style.opacity = Math.max(0, -e.deltaX / 100);
+
+            const nextCard = cardStack.querySelector('.card--next');
+            if(nextCard) {
+                const dragRatio = Math.min(1, Math.abs(e.deltaX) / (element.offsetWidth / 2));
+                const scale = 0.95 + (0.05 * dragRatio);
+                const translateY = 10 - (10 * dragRatio);
+                nextCard.style.transform = `translateY(${translateY}px) scale(${scale})`;
+            }
+        });
+
+        mc.on('panend', (e) => {
+            element.classList.remove('dragging');
+            const swipeThreshold = element.offsetWidth / 3;
+
+            if (Math.abs(e.deltaX) > swipeThreshold) {
+                const direction = e.deltaX > 0 ? 'right' : 'left';
+                const flyOutX = (direction === 'right' ? 1 : -1) * (element.offsetWidth * 1.5);
+                element.style.transform = `translate(${flyOutX}px, ${e.deltaY * 5}px) rotate(${e.deltaX / 10}deg)`;
+                element.classList.add('card--out');
+                processSwipe(direction === 'right' ? 'known' : 'unknown');
+            } else {
+                element.style.transform = '';
+                element.querySelector('.swipe-indicator.right').style.opacity = 0;
+                element.querySelector('.swipe-indicator.left').style.opacity = 0;
+                const nextCard = cardStack.querySelector('.card--next');
+                if(nextCard) nextCard.style.transform = 'translateY(10px) scale(0.95)';
+            }
+        });
+    }
+
+    // --- HÀNH ĐỘNG VÀ SỰ KIỆN ---
+
+    function processSwipe(status) {
+        if (isAnimating) return;
+        isAnimating = true;
+
+        const currentCardEl = cardStack.lastChild;
+        if(!currentCardEl) { isAnimating = false; return; }
+        
+        updateStatusOnServer(currentCardEl.dataset.id, status);
+        allVocabs[parseInt(currentCardEl.dataset.index)].status = status;
+
+        setTimeout(() => {
+            currentCardEl.remove();
+            
+            const nextCard = cardStack.querySelector('.card--next');
+            if (nextCard) nextCard.classList.remove('card--next');
+
+            const afterNextCard = cardStack.querySelector('.card--after-next');
+            if (afterNextCard) {
+                 afterNextCard.classList.remove('card--after-next');
+                 afterNextCard.classList.add('card--next');
+            }
+            
+            currentIndex = (currentIndex + 1) % allVocabs.length;
+            
+            const newCardIndex = (currentIndex + 2) % allVocabs.length;
+            if (allVocabs.length > 2 && newCardIndex !== currentIndex && newCardIndex !== (currentIndex + 1) % allVocabs.length) {
+                const newCard = createCardElement(allVocabs[newCardIndex], newCardIndex);
+                newCard.classList.add('card--after-next');
+                cardStack.insertBefore(newCard, cardStack.firstChild);
+            }
+            
+            if (cardStack.children.length > 0) setupHammer(cardStack.lastChild);
+            updateUI();
+            isAnimating = false;
+        }, 100);
+    }
+    
+    function flipCard() {
+        const topCard = cardStack.lastChild;
+        if (topCard) topCard.classList.toggle('flipped');
+    }
+
+    function speakWord(text) {
+        speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'de-DE';
+        speechSynthesis.speak(utterance);
+    }
+    
+    async function updateStatusOnServer(vocabId, status) {
+       try {
+           await fetch(`?action=update_status¬ebook_id=${notebookId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: `vocab_id=${vocabId}&status=${status}`
+           });
+       } catch (error) {
+           console.error("Lỗi khi cập nhật trạng thái:", error);
+       }
+    }
+
+    function triggerSwipeAnimation(direction) {
+        const topCard = cardStack.lastChild;
+        if (topCard && !isAnimating) {
+            topCard.style.transition = 'transform 0.5s ease';
+            const x_direction = direction === 'right' ? 1 : -1;
+            topCard.style.transform = `translateX(${x_direction * 150}%) rotate(${x_direction * 15}deg)`;
+            processSwipe(direction === 'right' ? 'known' : 'unknown');
+        }
+    }
+
+    // --- GẮN SỰ KIỆN CHO CÁC NÚT ---
+    document.getElementById('btn-flip').addEventListener('click', flipCard);
+    document.getElementById('btn-known').addEventListener('click', () => triggerSwipeAnimation('right'));
+    document.getElementById('btn-unknown').addEventListener('click', () => triggerSwipeAnimation('left'));
+    document.getElementById('btn-next').addEventListener('click', () => {
+        if (!isAnimating) processSwipe(allVocabs[currentIndex]?.status || 'unknown');
     });
-    // Tự động chuyển sang từ tiếp theo
-    let idx = (currentIndex + 1) % totalVocabs;
-    loadVocab(idx);
-}
+    document.getElementById('btn-prev').addEventListener('click', () => {
+        if (isAnimating || allVocabs.length < 2) return;
+        currentIndex = (currentIndex - 1 + allVocabs.length) % allVocabs.length;
+        updateCardStack();
+    });
 
-// Swipe gesture
-const flashcardContainer = document.getElementById('flashcard');
-const mc = new Hammer(flashcardContainer);
-mc.get('swipe').set({ direction: Hammer.DIRECTION_HORIZONTAL });
+    // --- HÀM TIỆN ÍCH ---
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.innerText = text;
+        return div.innerHTML;
+    }
+    function nl2br(str) {
+        if (!str) return '';
+        return str.replace(/(\r\n|\n\r|\r|\n)/g, '<br>');
+    }
 
-mc.on('swipeleft', () => {
-    flashcardContainer.classList.add('swipe-left');
-    setTimeout(() => {
-        let idx = (currentIndex + 1) % totalVocabs;
-        loadVocab(idx);
-        flashcardContainer.classList.remove('swipe-left');
-    }, 400); // khớp với thời gian animation
+    // --- KHỞI ĐỘNG ỨNG DỤNG ---
+    if(allVocabs && allVocabs.length > 0) {
+        updateCardStack();
+    } else {
+        cardStackContainer.innerHTML = '<p class="text-center mt-5">Sổ tay này chưa có từ vựng nào để học.</p>';
+        document.querySelector('.main-content > .d-flex').style.display = 'none';
+        document.querySelector('.main-content > .mt-4').style.display = 'none';
+        document.getElementById('progress-badge').style.display = 'none';
+    }
 });
-
-mc.on('swiperight', () => {
-    flashcardContainer.classList.add('swipe-right');
-    setTimeout(() => {
-        let idx = (currentIndex - 1 + totalVocabs) % totalVocabs;
-        loadVocab(idx);
-        flashcardContainer.classList.remove('swipe-right');
-    }, 400);
-});
-
 </script>
+
 </body>
 </html>
