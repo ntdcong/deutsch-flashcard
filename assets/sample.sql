@@ -41,6 +41,16 @@ CREATE TABLE learning_status (
     FOREIGN KEY (vocab_id) REFERENCES vocabularies(id)
 );
 
+   CREATE TABLE IF NOT EXISTS notebook_groups (
+       id INT AUTO_INCREMENT PRIMARY KEY,
+       user_id INT NOT NULL,
+       name VARCHAR(255) NOT NULL,
+       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+       FOREIGN KEY (user_id) REFERENCES users(id)
+   );
+
+   ALTER TABLE notebooks ADD COLUMN group_id INT NULL, ADD FOREIGN KEY (group_id) REFERENCES notebook_groups(id);
+
 -- Dữ liệu mẫu
 INSERT INTO users (email, password) VALUES ('demo@email.com', '$2y$10$QWERTYUIOPASDFGHJKLZXCVBNMqwertyuiop');
 INSERT INTO notebooks (user_id, title, description) VALUES (1, 'Sổ tay mẫu', 'Từ vựng cơ bản');
