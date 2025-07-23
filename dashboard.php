@@ -89,8 +89,8 @@ $selected_group = isset($_GET['group']) ? $_GET['group'] : 'all';
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
     <style>
         body { background: #f2f6fc; font-family: "Segoe UI", sans-serif; }
-        .navbar { background: linear-gradient(to right, #e0eafc, #cfdef3); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05); }
-        .navbar-brand { font-weight: bold; font-size: 1.5rem; color: #0d6efd; }
+        .navbar { background: linear-gradient(to right,rgb(90, 97, 229),rgb(123, 244, 224)); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05); }
+        .navbar-brand { font-weight: bold; font-size: 1.5rem; color:rgb(255, 255, 255); }
         .group-card { background: #fff; border-radius: 1.2rem; box-shadow: 0 4px 24px rgba(0,0,0,0.07); padding: 1.5rem 1.2rem; margin-bottom: 2rem; }
         .group-header { display: flex; align-items: center; gap: 0.7rem; margin-bottom: 1rem; }
         .group-header .icon { font-size: 2rem; color: #0d6efd; }
@@ -130,7 +130,7 @@ $selected_group = isset($_GET['group']) ? $_GET['group'] : 'all';
         <div class="col-md-5 col-12 mb-2 mb-md-0">
             <form method="post" class="d-flex gap-2">
                 <input type="text" name="group_name" class="form-control" placeholder="Tên nhóm mới" required>
-                <button class="btn btn-outline-primary" name="add_group"><i class="bi bi-folder-plus"></i> Thêm nhóm</button>
+                <button class="btn btn-outline-primary" name="add_group"><i class="bi bi-folder-plus"></i> Thêm nhóm mới</button>
             </form>
         </div>
         <div class="col-md-7 col-12">
