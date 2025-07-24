@@ -14,7 +14,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $user = $stmt->fetch();
     if ($user && password_verify($password, $user['password'])) {
         $_SESSION['user_id'] = $user['id'];
-        header('Location: dashboard.php');
+        header('Location: home.php');
         exit;
     } else {
         $message = 'Email hoặc mật khẩu không đúng!';

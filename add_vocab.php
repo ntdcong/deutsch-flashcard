@@ -122,7 +122,7 @@ if (isset($_GET['edit'])) {
     <style>
         body {
             background: #f8f9fa;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-family: 'Montserrat', sans-serif;
             padding-bottom: 20px;
         }
 

@@ -88,7 +88,7 @@ $selected_group = isset($_GET['group']) ? $_GET['group'] : 'all';
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
     <style>
-        body { background: #f2f6fc; font-family: "Segoe UI", sans-serif; }
+        body { background: #f2f6fc; font-family: 'Montserrat', 'Segoe UI', sans-serif; }
         .navbar { background: linear-gradient(to right,rgb(90, 97, 229),rgb(123, 244, 224)); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05); }
         .navbar-brand { font-weight: bold; font-size: 1.5rem; color:rgb(255, 255, 255); }
         .group-card { background: #fff; border-radius: 1.2rem; box-shadow: 0 4px 24px rgba(0,0,0,0.07); padding: 1.5rem 1.2rem; margin-bottom: 2rem; }
@@ -116,7 +116,7 @@ $selected_group = isset($_GET['group']) ? $_GET['group'] : 'all';
 <body>
 <nav class="navbar navbar-expand-lg">
     <div class="container">
-        <a class="navbar-brand" href="dashboard.php">Flashcard</a>
+        <a class="navbar-brand" href="home.php">GERMANLY</a>
         <div class="d-flex">
             <a href="logout.php" class="btn btn-outline-danger">
                 <i class="bi bi-box-arrow-right"></i> Đăng xuất

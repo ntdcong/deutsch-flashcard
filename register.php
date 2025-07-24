@@ -6,13 +6,11 @@ if (isset($_SESSION['user_id'])) {
     exit;
 }
 $errors = [];
-$username = '';
 $email = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $email = trim($_POST['email'] ?? '');
     $password = $_POST['password'] ?? '';
     $confirm = $_POST['confirm_password'] ?? '';
-    if (!$username) $errors[] = "Tên người dùng là bắt buộc.";
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) $errors[] = "Email không hợp lệ.";
     if (strlen($password) < 6) $errors[] = "Mật khẩu phải có ít nhất 6 ký tự.";
     if ($password !== $confirm) $errors[] = "Xác nhận mật khẩu không khớp.";
@@ -25,10 +23,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     if (empty($errors)) {
         $hash = password_hash($password, PASSWORD_DEFAULT);
-        $stmt = $pdo->prepare("INSERT INTO users (username, email, password) VALUES (?, ?, ?)");
-        $stmt->execute([$username, $email, $hash]);
+        $stmt = $pdo->prepare("INSERT INTO users (email, password) VALUES (?, ?)");
+        $stmt->execute([$email, $hash]);
         $_SESSION['user_id'] = $pdo->lastInsertId();
-        header('Location: dashboard.php');
+        header('Location: home.php');
         exit;
     }
 }

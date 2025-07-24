@@ -44,12 +44,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($action, ['get_question', 
             return array_shift($quiz_data['review_queue']);
         }
         // Ngược lại, tăng chỉ số hiện tại trong danh sách tuần tự
-        // Không cần modulo nữa vì đã không trộn lại
         $quiz_data['current_index'] = ($quiz_data['current_index'] + 1);
-        // Nếu vượt quá tổng số từ, quay lại từ đầu (hoặc có thể dừng quiz nếu muốn)
+        // Nếu vượt quá tổng số từ, DỪNG quiz (trả về false)
         if ($quiz_data['current_index'] >= count($vocabs)) {
-             $quiz_data['current_index'] = 0; // Quay lại từ đầu
-             // Hoặc có thể dừng quiz: return false;
+            return false; // Dừng quiz, không quay lại từ đầu nữa
         }
         return $quiz_data['current_index'];
     }
@@ -83,11 +81,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($action, ['get_question', 
         $current_index = $quiz_data['current_index'];
         $stats = $quiz_data['stats'];
 
-        // Kiểm tra nếu đã hết từ (tùy chọn)
+        // Nếu đã hết từ và không còn từ sai để ôn lại, trả về quiz_finished
         if ($current_index >= count($vocabs) && empty($quiz_data['review_queue'])) {
-             // Có thể reset hoặc thông báo hết từ
-             // $quiz_data['current_index'] = 0; // Reset về đầu nếu muốn lặp vô hạn
-             // $current_index = 0;
+            echo json_encode([
+                'success' => true,
+                'quiz_finished' => true,
+                'stats' => $stats,
+                'total_questions' => count($vocabs),
+                'current_index' => count($vocabs),
+                'progress_percent' => 100
+            ]);
+            exit;
         }
 
         // Xác định chế độ câu hỏi
@@ -673,6 +677,13 @@ document.addEventListener('DOMContentLoaded', function () {
         updateStats(resultData.stats, resultData.total_questions);
         updateProgress(resultData.progress_percent);
 
+        // Phát âm thanh
+        if (resultData.result.is_correct) {
+            document.getElementById('audio-correct').play();
+        } else {
+            document.getElementById('audio-wrong').play();
+        }
+
         // Gắn sự kiện click nút tiếp theo
         document.getElementById('next-btn').addEventListener('click', function () {
             loadNextQuestion();
@@ -682,9 +693,8 @@ document.addEventListener('DOMContentLoaded', function () {
      // Hàm hiển thị thông báo kết thúc quiz (tùy chọn)
     function showQuizFinished(data) {
         let finishedHtml = `
-            <div class="quiz-finished">
-                <h2>🎉 Quiz Đã Hoàn Thành!</h2>
-                <p>Bạn đã trả lời tất cả các từ trong danh sách.</p>
+            <div class="quiz-finished"> 
+                <p> 🎉 Bạn đã hoàn thành bài Quiz của danh sách từ vựng này.</p>
                 <p><strong>Thống kê cuối cùng:</strong></p>
                 <ul class="list-unstyled">
                     <li>Tổng số từ: <strong>${data.total_questions}</strong></li>
@@ -698,6 +708,9 @@ document.addEventListener('DOMContentLoaded', function () {
         quizArea.innerHTML = finishedHtml;
         updateStats(data.stats, data.total_questions);
         updateProgress(data.progress_percent);
+
+        // Phát âm thanh hoàn thành
+        document.getElementById('audio-finish').play();
 
         document.getElementById('restart-btn').addEventListener('click', function() {
             resetQuiz(); // Gọi hàm reset để bắt đầu lại
@@ -812,5 +825,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
 });
 </script>
+<audio id="audio-correct" src="assets/correct.mp3" preload="auto"></audio>
+<audio id="audio-wrong" src="assets/wrong.mp3" preload="auto"></audio>
+<audio id="audio-finish" src="assets/finish.mp3" preload="auto"></audio>
 </body>
 </html>
