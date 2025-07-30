@@ -1,85 +1,95 @@
-# ⚡ Flashcard Đức - Ứng dụng học từ vựng tiếng Đức hiện đại
+# ⚡ GERMANLY – Your German Learning Companion
 
-![Flashcard Banner](https://imgur.com/4M7IWwP.png)
+![Flashcard Banner](http://www.deutsch.ct.ws/assets/meme.jpg)
 
-> **Nâng tầm trải nghiệm học từ vựng tiếng Đức với Flashcard, Quiz, giao diện đẹp, hiệu ứng sống động và dễ dùng cho mọi đối tượng!**
-
----
-
-## 🚀 Giới thiệu
-**Flashcard Đức** là nền tảng web giúp bạn học từ vựng tiếng Đức hiệu quả qua flashcard, quiz, và các công cụ hỗ trợ hiện đại. Dành cho người mới bắt đầu đến nâng cao, tối ưu hóa trải nghiệm học tập với giao diện trực quan, responsive và nhiều tính năng thông minh.
+> **Elevate your German learning experience with engaging flashcards, interactive quizzes, sleek design, dynamic effects, and an intuitive interface for learners of all levels!**
 
 ---
 
-## 🌟 Tính năng nổi bật
-- **Học từ vựng bằng Flashcard**: Lật thẻ, đánh dấu đã biết/chưa biết, hiệu ứng swipe mượt mà.
-- **Quiz kiểm tra từ vựng**: Câu hỏi trắc nghiệm & tự luận, thống kê kết quả, hiệu ứng âm thanh động viên.
-- **Quản lý sổ tay từ vựng**: Tạo nhóm, thêm/xóa/sửa sổ tay, nhập từ Excel.
-- **Theo dõi tiến độ học**: Thống kê số từ đã học, chuỗi đúng liên tiếp, lịch sử học tập.
-- **Giao diện hiện đại**: Thiết kế responsive, hỗ trợ cả desktop & mobile, icon đẹp, màu sắc trẻ trung.
-- **Bảo mật**: Đăng ký, đăng nhập an toàn, lưu trữ dữ liệu cá nhân riêng biệt.
-- **Sắp ra mắt**: Học "Biến cách" (ngữ pháp nâng cao), thư viện kiến thức cơ bản tiếng Đức.
+## 🚀 Introduction
+**GERMANLY** is a modern web-based platform designed to help you master German vocabulary through flashcards, quizzes, and smart learning tools. Whether you're a beginner or an advanced learner, GERMANLY optimizes your study experience with an intuitive, responsive interface and powerful features tailored to your needs.
 
 ---
 
-## 🛠️ Công nghệ sử dụng
-- **PHP** (Core, không framework)
-- **MySQL** (PDO)
+## 🌟 Key Features
+- **Flashcard-based Learning**  
+  Flip cards, mark words as known/unknown, and enjoy smooth swipe animations for better engagement.
+
+- **Vocabulary Quizzes**  
+  Test your knowledge with multiple-choice and written questions. View performance stats and get motivational sound effects.
+
+- **Personal Vocabulary Notebook**  
+  Create, manage, and organize vocabulary sets. Add, edit, or delete entries and import word lists from Excel.
+
+- **Progress Tracking**  
+  Monitor your learning journey with detailed stats: words learned, streaks, and learning history.
+
+- **Modern Interface**  
+  Clean, responsive design that works seamlessly on both desktop and mobile. Fresh visuals and iconography for a vibrant learning experience.
+
+- **Secure User Management**  
+  Safe registration and login system with personal data protection.
+
+- **Grammar & Essentials**  
+  Access basic grammar guides, including noun declensions and foundational German knowledge.
+
+---
+
+## 🛠️ Technologies Used
+- **PHP** (Core, no framework)
+- **MySQL** (with PDO)
 - **Bootstrap 5** & **Bootstrap Icons**
 - **JavaScript (ES6+)**
 - **HTML5, CSS3**
-- **[PhpSpreadsheet](https://phpspreadsheet.readthedocs.io/)** (import từ Excel)
+- **[PhpSpreadsheet](https://phpspreadsheet.readthedocs.io/)** (for Excel import functionality)
 
 ---
 
-## ⚡ Demo giao diện
-![Demo](https://imgur.com/4M7IWwP.png)
-
----
-
-## 📦 Hướng dẫn cài đặt
-1. **Clone dự án:**
+## 📦 Installation Guide
+1. **Clone the Repository:**
    ```bash
-   git clone https://github.com/yourusername/flashcard-duc.git
-   cd flashcard-duc
+   git clone https://github.com/yourusername/deutsch-flashcard.git
+   cd deutsch-flashcard
    ```
-2. **Cài đặt Composer:**
+
+2. **Install Composer Dependencies:**
    ```bash
    composer install
    ```
-3. **Tạo database MySQL:**
-   - Import file `assets/sample.sql` hoặc `assets/flashcard-backup.sql` vào MySQL.
-4. **Cấu hình kết nối DB:**
-   - Sửa thông tin trong `db.php` cho phù hợp với máy bạn.
-5. **Chạy ứng dụng:**
-   - Mở trình duyệt và truy cập `http://localhost/flashcard` (hoặc đường dẫn bạn đã cài đặt).
+
+3. **Set Up the MySQL Database:**
+   - Import the `assets/sample.sql` or `assets/flashcard-backup.sql` file into your MySQL database.
+
+4. **Configure the Database Connection:**
+   - Update the database credentials in `db.php` to match your environment.
+
+5. **Run the Application:**
+   - Open your browser and navigate to `http://localhost/flashcard` (or your configured URL path).
 
 ---
 
-## 📚 Hướng dẫn sử dụng nhanh
-- **Đăng ký tài khoản** → Đăng nhập
-- **Tạo sổ tay từ vựng** (theo chủ đề)
-- **Thêm từ vựng thủ công hoặc import từ Excel**
-- **Học bằng Flashcard hoặc Quiz**
-- **Theo dõi tiến độ, ôn tập các từ sai**
+## 📚 Quick Start Guide
+- **Register an account** → Log in
+- **Create vocabulary notebooks** (by topic)
+- **Add vocabulary manually or import from Excel**
+- **Study using Flashcards or Quizzes**
+- **Track progress and review incorrect answers**
 
 ---
 
-## 🤝 Đóng góp & phát triển
-- Fork, tạo pull request hoặc mở issue nếu bạn muốn đóng góp ý tưởng, tính năng mới hoặc phát hiện bug.
-- Mọi đóng góp đều được ghi nhận và trân trọng!
+## 🤝 Contributing & Development
+- Feel free to fork the repository, submit pull requests, or open issues if you'd like to contribute new ideas, features, or bug fixes.
+- All contributions are welcomed and greatly appreciated!
 
 ---
 
-## 📄 Bản quyền
-- © 2025 by Duy Công. Sử dụng cho mục đích học tập, phi thương mại.
-- Icon by [Bootstrap Icons](https://icons.getbootstrap.com/).
+## 📄 License
+- © 2025 by Duy Công. For educational and non-commercial use only.
+- Icons provided by [Bootstrap Icons](https://icons.getbootstrap.com/).
 
 ---
 
-## 📬 Liên hệ
+## 📬 Contact
 - **Email:** duycong2580@gmail.com
-- **Facebook:** [fb.com/duycong2580](https://fb.com/duycong2580)
-- **Github:** [github.com/yourusername](https://github.com/yourusername)
 
-> **Hãy bắt đầu hành trình chinh phục tiếng Đức của bạn ngay hôm nay với Flashcard Đức!** 
+> **Start your journey to mastering German today with GERMANLY!**
