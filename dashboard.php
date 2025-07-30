@@ -203,6 +203,7 @@ $selected_group = isset($_GET['group']) ? $_GET['group'] : 'all';
                                 <a href="study_quiz.php?notebook_id=<?= $nb['id'] ?>" class="btn btn-outline-info btn-sm"><i class="bi bi-question-circle"></i> Quiz</a>
                                 <a href="add_vocab.php?notebook_id=<?= $nb['id'] ?>" class="btn btn-outline-primary btn-sm"><i class="bi bi-pencil-square"></i> Từ vựng</a>
                                 <a href="import_excel.php?notebook_id=<?= $nb['id'] ?>" class="btn btn-outline-success btn-sm"><i class="bi bi-file-earmark-excel"></i> Excel</a>
+                                <a href="share_notebook.php?notebook_id=<?= $nb['id'] ?>" class="btn btn-outline-primary btn-sm"><i class="bi bi-share"></i> Chia sẻ</a>
                                 <a href="#" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#editModal<?= $nb['id'] ?>"><i class="bi bi-pencil"></i> Sửa sổ tay</a>
                                 <a href="?delete=<?= $nb['id'] ?>" class="btn btn-outline-danger btn-sm" onclick="return confirm('Bạn có chắc chắn muốn xoá sổ tay này?');"><i class="bi bi-trash"></i> Xoá</a>
                             </div>
