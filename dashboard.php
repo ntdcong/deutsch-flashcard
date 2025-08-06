@@ -88,8 +88,8 @@ $selected_group = isset($_GET['group']) ? $_GET['group'] : 'all';
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
     <style>
-        body { background: #f2f6fc; font-family: 'Montserrat', 'Segoe UI', sans-serif; }
-        .navbar { background: linear-gradient(to right,rgb(90, 97, 229),rgb(123, 244, 224)); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05); }
+        body { background: #F9FAFB; font-family:'Segoe UI', sans-serif; }
+        .navbar { background: linear-gradient(to right,rgb(90, 97, 229),rgb(140, 242, 255)); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05); }
         .navbar-brand { font-weight: bold; font-size: 1.5rem; color:rgb(255, 255, 255); }
         .group-card { background: #fff; border-radius: 1.2rem; box-shadow: 0 4px 24px rgba(0,0,0,0.07); padding: 1.5rem 1.2rem; margin-bottom: 2rem; }
         .group-header { display: flex; align-items: center; gap: 0.7rem; margin-bottom: 1rem; }
@@ -125,47 +125,53 @@ $selected_group = isset($_GET['group']) ? $_GET['group'] : 'all';
     </div>
 </nav>
 <div class="container mt-4 mb-5">
-    <!-- Form thêm nhóm và thêm sổ tay -->
-    <div class="row g-3 align-items-center mb-3">
-        <div class="col-md-5 col-12 mb-2 mb-md-0">
-            <form method="post" class="d-flex gap-2">
-                <input type="text" name="group_name" class="form-control" placeholder="Tên nhóm mới" required>
-                <button class="btn btn-outline-primary" name="add_group"><i class="bi bi-folder-plus"></i> Thêm nhóm mới</button>
-            </form>
-        </div>
-        <div class="col-md-7 col-12">
-            <form method="post" class="row g-2 align-items-center">
-                <div class="col-12 col-md-3">
-                    <input type="text" name="title" class="form-control" placeholder="Tiêu đề sổ tay" required>
-                </div>
-                <div class="col-12 col-md-3">
-                    <input type="text" name="description" class="form-control" placeholder="Mô tả (tuỳ chọn)">
-                </div>
-                <div class="col-12 col-md-3">
-                    <select name="group_id" class="form-select">
-                        <option value="">Không nhóm</option>
-                        <?php foreach ($groups as $g): ?>
-                            <option value="<?= $g['id'] ?>"><?= htmlspecialchars($g['name']) ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-                <div class="col-12 col-md-3">
-                    <button class="btn btn-success" name="add_notebook"><i class="bi bi-journal-plus"></i> Thêm sổ</button>
-                </div>
-            </form>
+    <!-- Các nút hành động chính - Thiết kế đẹp, hiện đại -->
+    <div class="mb-4 text-center text-md-start">
+        <div class="d-flex flex-wrap justify-content-center justify-content-md-start gap-3">
+            
+            <!-- Nút Tạo nhóm mới -->
+            <button class="btn d-flex align-items-center gap-2 px-4 py-2 rounded-pill shadow-sm border-0"
+                    style="background: linear-gradient(to right, #6a11cb, #2575fc); color: white; font-weight: 500; transition: all 0.2s ease;"
+                    data-bs-toggle="modal" data-bs-target="#modalAddGroup">
+                <i class="bi bi-folder-plus" style="font-size: 1.2rem;"></i>
+                <span>Tạo nhóm</span>
+            </button>
+
+            <!-- Nút Tạo sổ tay mới -->
+            <button class="btn d-flex align-items-center gap-2 px-4 py-2 rounded-pill shadow-sm border-0"
+                    style="background: linear-gradient(to right, #11998e, #38ef7d); color: white; font-weight: 500; transition: all 0.2s ease;"
+                    data-bs-toggle="modal" data-bs-target="#modalAddNotebook">
+                <i class="bi bi-journal-plus" style="font-size: 1.2rem;"></i>
+                <span>Tạo sổ tay</span>
+            </button>
+
+            <!-- Nút Nhập sổ tay chia sẻ -->
+            <a href="import_shared.php"
+            class="btn d-flex align-items-center gap-2 px-4 py-2 rounded-pill shadow-sm border-0 text-white"
+            style="background: linear-gradient(to right, #f093fb, #f5576c); font-weight: 500; transition: all 0.2s ease;">
+                <i class="bi bi-download" style="font-size: 1.2rem;"></i>
+                <span>Nhập chia sẻ</span>
+            </a>
         </div>
     </div>
-    <!-- Dropdown filter nhóm -->
-    <form method="get" class="mb-4 d-flex flex-wrap align-items-center gap-2">
-        <label class="form-label mb-0 me-2" for="groupFilter"><i class="bi bi-filter"></i> Nhóm:</label>
-        <select name="group" id="groupFilter" class="form-select" style="max-width:220px;" onchange="this.form.submit()">
-            <option value="all"<?= $selected_group==='all'?' selected':'' ?>>Tất cả nhóm</option>
-            <?php foreach ($groups as $g): ?>
-                <option value="<?= $g['id'] ?>"<?= $selected_group==$g['id']?' selected':'' ?>><?= htmlspecialchars($g['name']) ?></option>
-            <?php endforeach; ?>
-            <option value="none"<?= $selected_group==='none'?' selected':'' ?>>Không thuộc nhóm</option>
-        </select>
+
+    <!-- Bộ lọc nhóm -->
+    <form method="get" class="mb-4 d-flex flex-column flex-md-row align-items-center gap-2">
+        <div class="d-flex align-items-center w-100 w-md-auto">
+            <label class="form-label mb-0 me-2" for="groupFilter"><i class="bi bi-filter"></i> Nhóm:</label>
+            <select name="group" id="groupFilter" class="form-select" style="max-width: 220px;" onchange="this.form.submit()">
+                <option value="all" <?= $selected_group === 'all' ? 'selected' : '' ?>>Tất cả nhóm</option>
+                <?php foreach ($groups as $g): ?>
+                    <option value="<?= $g['id'] ?>" <?= $selected_group == $g['id'] ? 'selected' : '' ?>>
+                        <?= htmlspecialchars($g['name']) ?>
+                    </option>
+                <?php endforeach; ?>
+                <option value="none" <?= $selected_group === 'none' ? 'selected' : '' ?>>Không nhóm</option>
+            </select>
+        </div>
     </form>
+
+    
     <?php if ($message): ?><div class="alert alert-info"><?= $message ?></div><?php endif; ?>
     <?php if (count($groups) === 0): ?>
         <div class="text-center my-5">
@@ -177,19 +183,21 @@ $selected_group = isset($_GET['group']) ? $_GET['group'] : 'all';
     <?php foreach ($groups as $g): ?>
         <?php if ($selected_group==='all' || $selected_group==$g['id']): ?>
         <div class="group-card">
-            <div class="group-header">
+            <div class="group-header" data-group="<?= $g['id'] ?>">
                 <span class="icon"><i class="bi bi-folder-fill"></i></span>
                 <span class="group-title"><?= htmlspecialchars($g['name']) ?></span>
                 <form method="get" class="d-inline">
                     <input type="hidden" name="delete_group" value="<?= $g['id'] ?>">
-                    <button class="btn btn-sm btn-danger ms-2" type="submit" onclick="return confirm('Xoá nhóm này? Các sổ tay sẽ chuyển về không nhóm.')" title="Xoá nhóm" style="min-width:32px;">
+                    <button class="btn btn-sm btn-danger ms-2 " type="submit" 
+                            onclick="return confirm('Xoá nhóm này? Các sổ tay sẽ chuyển về không nhóm.')" 
+                            title="Xoá nhóm" style="min-width:32px;">
                         <i class="bi bi-trash"></i>
                     </button>
                 </form>
                 <?php if (!empty($notebooks_by_group[$g['id']])): ?>
-                    <button class="btn btn-sm btn-light ms-auto toggle-group-btn" data-group="<?= $g['id'] ?>">
-                        <span class="toggle-label"><i class="bi bi-chevron-down"></i> Xem sổ tay</span>
-                    </button>
+                    <i class="bi bi-chevron-down text-muted ms-auto toggle-icon" 
+                    style="transition: transform 0.2s; cursor: pointer;" 
+                    data-group="<?= $g['id'] ?>"></i>
                 <?php endif; ?>
             </div>
             <div class="notebook-grid d-none" id="groupGrid<?= $g['id'] ?>">
@@ -367,16 +375,50 @@ $selected_group = isset($_GET['group']) ? $_GET['group'] : 'all';
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    document.querySelectorAll('.toggle-group-btn').forEach(function(btn) {
-        btn.addEventListener('click', function() {
-            var groupId = btn.getAttribute('data-group');
-            var grid = document.getElementById('groupGrid' + groupId);
-            var expanded = btn.classList.toggle('expanded');
-            grid.classList.toggle('d-none', !expanded);
-            btn.querySelector('.toggle-label').innerHTML = expanded
-                ? '<i class="bi bi-chevron-up"></i> Thu gọn'
-                : '<i class="bi bi-chevron-down"></i> Xem sổ tay';
+    document.querySelectorAll('.group-header').forEach(function(header) {
+        const groupId = header.getAttribute('data-group');
+        const grid = document.getElementById('groupGrid' + groupId);
+        const icon = header.querySelector('.toggle-icon');
+
+        // Nếu không có grid (ví dụ nhóm rỗng), thoát
+        if (!grid) return;
+
+        // Thiết lập trạng thái ban đầu cho icon
+        if (icon) {
+            icon.style.transform = grid.classList.contains('d-none') ? 'rotate(0deg)' : 'rotate(180deg)';
+        }
+
+        // Xử lý click vào header
+        header.addEventListener('click', function(e) {
+            // Bỏ qua nếu click vào nút xóa hoặc các phần tử con không phải header
+            if (e.target.closest('button[type="submit"], .btn-danger, form, .toggle-icon')) {
+                return;
+            }
+
+            // Toggle grid
+            const isHidden = grid.classList.contains('d-none');
+            grid.classList.toggle('d-none', !isHidden);
+
+            // Xoay icon
+            if (icon) {
+                icon.style.transform = isHidden ? 'rotate(180deg)' : 'rotate(0deg)';
+            }
         });
+
+        // Click vào icon cũng toggle (tuỳ chọn)
+        if (icon) {
+            icon.addEventListener('click', function(e) {
+                e.stopPropagation(); // Ngăn nổi bọt
+                const isHidden = grid.classList.contains('d-none');
+                grid.classList.toggle('d-none', !isHidden);
+                this.style.transform = isHidden ? 'rotate(180deg)' : 'rotate(0deg)';
+            });
+        }
+    });
+
+    // Đảm bảo nút xóa nhóm không gây toggle nhóm
+    document.querySelectorAll('form[method="get"] button[type="submit"]').forEach(btn => {
+        btn.addEventListener('click', e => e.stopPropagation());
     });
 });
 </script>
