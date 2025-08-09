@@ -311,7 +311,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <body>
     <div class="register-card mx-auto">
         <div class="text-center mb-4 w-100">
-            <div class="logo mb-2"><i class="bi bi-lightning-charge"></i> Germanly</div>
+            <div class="logo">
+                <i></i> GERMANLY
+            </div>
             <h4>Đăng ký tài khoản</h4>
             <p class="text-muted">Tạo tài khoản để bắt đầu học tiếng Đức!</p>
         </div>
@@ -338,6 +340,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <div class="position-relative">
                     <input type="password" name="password" id="password" class="form-control input-with-icon" 
                            placeholder="Tạo mật khẩu (ít nhất 6 ký tự)" required minlength="6">
+                    <!-- Nút toggle cho mật khẩu -->
+                    <button type="button" class="btn btn-outline-secondary toggle-password" data-target="password" style="position: absolute; right: 5px; top: 50%; transform: translateY(-50%); z-index: 10; border: none; background: transparent; padding: 0.375rem 0.75rem;" aria-label="Hiện mật khẩu">
+                        <i class="bi bi-eye"></i>
+                    </button>
                 </div>
             </div>
             
@@ -345,6 +351,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <div class="position-relative">
                     <input type="password" name="confirm_password" id="confirm_password" class="form-control input-with-icon" 
                            placeholder="Xác nhận mật khẩu" required>
+                    <!-- Nút toggle cho xác nhận mật khẩu -->
+                    <button type="button" class="btn btn-outline-secondary toggle-password" data-target="confirm_password" style="position: absolute; right: 5px; top: 50%; transform: translateY(-50%); z-index: 10; border: none; background: transparent; padding: 0.375rem 0.75rem;" aria-label="Hiện xác nhận mật khẩu">
+                        <i class="bi bi-eye"></i>
+                    </button>
                 </div>
             </div>
             
@@ -363,5 +373,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div>
     
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Xử lý nút toggle mật khẩu
+        document.querySelectorAll('.toggle-password').forEach(button => {
+            button.addEventListener('click', function() {
+                const targetId = this.getAttribute('data-target');
+                const passwordInput = document.getElementById(targetId);
+                const icon = this.querySelector('i');
+                
+                if (passwordInput.type === 'password') {
+                    passwordInput.type = 'text';
+                    icon.classList.remove('bi-eye');
+                    icon.classList.add('bi-eye-slash');
+                } else {
+                    passwordInput.type = 'password';
+                    icon.classList.remove('bi-eye-slash');
+                    icon.classList.add('bi-eye');
+                }
+            });
+        });
+    });
+    </script>
 </body>
 </html>

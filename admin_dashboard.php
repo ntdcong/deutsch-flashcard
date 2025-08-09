@@ -13,72 +13,108 @@ $message = '';
 $error = '';
 
 // Xử lý các hành động quản lý người dùng
-if (isset($_POST['action'])) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $action = $_POST['action'];
-    
+
     // Thay đổi quyền người dùng
     if ($action === 'change_role') {
-        $target_user_id = (int)$_POST['user_id'];
-        $new_role = $_POST['new_role'];
-        
-        if ($new_role === 'admin' || $new_role === 'user') {
+        $target_user_id = filter_input(INPUT_POST, 'user_id', FILTER_VALIDATE_INT);
+        $new_role = $_POST['new_role'] ?? '';
+
+        if ($target_user_id && ($new_role === 'admin' || $new_role === 'user')) {
             $stmt = $pdo->prepare('UPDATE users SET role = ? WHERE id = ?');
-            $stmt->execute([$new_role, $target_user_id]);
-            $message = 'Đã cập nhật quyền người dùng!';
+            if ($stmt->execute([$new_role, $target_user_id])) {
+                $message = 'Đã cập nhật quyền người dùng!';
+            } else {
+                $error = 'Cập nhật quyền thất bại.';
+            }
         } else {
-            $error = 'Quyền không hợp lệ!';
+            $error = 'Dữ liệu không hợp lệ!';
         }
     }
-    
+
     // Xóa người dùng
     if ($action === 'delete_user') {
-        $target_user_id = (int)$_POST['user_id'];
-        
-        // Không cho phép xóa chính mình
-        if ($target_user_id === $user_id) {
+        $target_user_id = filter_input(INPUT_POST, 'user_id', FILTER_VALIDATE_INT);
+
+        if ($target_user_id === false || $target_user_id === null) {
+            $error = 'ID người dùng không hợp lệ!';
+        } elseif ($target_user_id === $user_id) {
             $error = 'Không thể xóa tài khoản của chính bạn!';
         } else {
-            // Xóa dữ liệu liên quan
-            $pdo->prepare('DELETE FROM learning_status WHERE user_id = ?')->execute([$target_user_id]);
-            $pdo->prepare('DELETE FROM vocabularies WHERE notebook_id IN (SELECT id FROM notebooks WHERE user_id = ?)')->execute([$target_user_id]);
-            $pdo->prepare('DELETE FROM notebooks WHERE user_id = ?')->execute([$target_user_id]);
-            $pdo->prepare('DELETE FROM notebook_groups WHERE user_id = ?')->execute([$target_user_id]);
-            $pdo->prepare('DELETE FROM users WHERE id = ?')->execute([$target_user_id]);
-            $message = 'Đã xóa người dùng và dữ liệu liên quan!';
+            try {
+                $pdo->beginTransaction();
+
+                // Xóa dữ liệu liên quan theo thứ tự phụ thuộc khóa ngoại
+                $pdo->prepare('DELETE FROM learning_status WHERE user_id = ?')->execute([$target_user_id]);
+                // Lấy danh sách notebook_id để xóa vocabularies liên quan (có thể tối ưu hơn bằng JOIN trong DELETE)
+                $notebookStmt = $pdo->prepare('SELECT id FROM notebooks WHERE user_id = ?');
+                $notebookStmt->execute([$target_user_id]);
+                $notebookIds = $notebookStmt->fetchAll(PDO::FETCH_COLUMN, 0); // Lấy cột đầu tiên (id)
+
+                if (!empty($notebookIds)) {
+                    // Sử dụng placeholder động cho IN clause
+                    $placeholders = str_repeat('?,', count($notebookIds) - 1) . '?';
+                    $pdo->prepare("DELETE FROM vocabularies WHERE notebook_id IN ($placeholders)")->execute($notebookIds);
+                }
+
+                $pdo->prepare('DELETE FROM notebooks WHERE user_id = ?')->execute([$target_user_id]);
+                $pdo->prepare('DELETE FROM notebook_groups WHERE user_id = ?')->execute([$target_user_id]);
+                $pdo->prepare('DELETE FROM users WHERE id = ?')->execute([$target_user_id]);
+
+                $pdo->commit();
+                $message = 'Đã xóa người dùng và dữ liệu liên quan!';
+            } catch (Exception $e) {
+                $pdo->rollBack();
+                error_log("Lỗi khi xóa người dùng ID $target_user_id: " . $e->getMessage());
+                $error = 'Đã xảy ra lỗi khi xóa người dùng.';
+            }
         }
     }
 }
 
-// Lấy danh sách người dùng
-$stmt = $pdo->query('SELECT id, email, role, created_at FROM users ORDER BY created_at DESC');
-$users = $stmt->fetchAll();
+// --- Truy vấn dữ liệu cho Dashboard ---
+// Tổng quan thống kê (có thể cache nếu dữ liệu lớn)
+$statsStmt = $pdo->query('
+    SELECT 
+        (SELECT COUNT(*) FROM users) as total_users,
+        (SELECT COUNT(*) FROM notebooks) as total_notebooks,
+        (SELECT COUNT(*) FROM vocabularies) as total_vocabularies,
+        (SELECT COUNT(*) FROM users WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)) as recent_users,
+        (SELECT COUNT(*) FROM vocabularies WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)) as recent_vocabularies
+');
+$stats = $statsStmt->fetch(PDO::FETCH_ASSOC);
 
-// Thống kê
-$stats = [
-    'total_users' => $pdo->query('SELECT COUNT(*) FROM users')->fetchColumn(),
-    'total_notebooks' => $pdo->query('SELECT COUNT(*) FROM notebooks')->fetchColumn(),
-    'total_vocabularies' => $pdo->query('SELECT COUNT(*) FROM vocabularies')->fetchColumn(),
-    'recent_users' => $pdo->query('SELECT COUNT(*) FROM users WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)')->fetchColumn(),
-    'recent_vocabularies' => $pdo->query('SELECT COUNT(*) FROM vocabularies WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)')->fetchColumn(),
-];
+// Top 5 người dùng tích cực (có thể giới hạn thời gian nếu cần)
+$topUsersStmt = $pdo->query('
+    SELECT u.email, COUNT(v.id) as vocab_count 
+    FROM users u 
+    JOIN notebooks n ON u.id = n.user_id 
+    JOIN vocabularies v ON n.id = v.notebook_id 
+    GROUP BY u.id, u.email
+    ORDER BY vocab_count DESC 
+    LIMIT 5
+');
+$top_users = $topUsersStmt->fetchAll(PDO::FETCH_ASSOC);
 
-// Lấy top 5 người dùng có nhiều từ vựng nhất
-$stmt = $pdo->query('SELECT u.email, COUNT(v.id) as vocab_count 
-                    FROM users u 
-                    JOIN notebooks n ON u.id = n.user_id 
-                    JOIN vocabularies v ON n.id = v.notebook_id 
-                    GROUP BY u.id 
-                    ORDER BY vocab_count DESC 
-                    LIMIT 5');
-$top_users = $stmt->fetchAll();
+// --- Truy vấn dữ liệu cho Quản lý người dùng ---
+$usersStmt = $pdo->query('SELECT id, email, role, created_at FROM users ORDER BY created_at DESC');
+$users = $usersStmt->fetchAll(PDO::FETCH_ASSOC);
 
-// Lấy danh sách tất cả các sổ tay
-$stmt = $pdo->query('SELECT n.id, n.title, n.description, n.created_at, u.email as user_email, 
-                    (SELECT COUNT(*) FROM vocabularies WHERE notebook_id = n.id) as vocab_count 
-                    FROM notebooks n 
-                    JOIN users u ON n.user_id = u.id 
-                    ORDER BY n.created_at DESC');
-$all_notebooks = $stmt->fetchAll();
+// --- Truy vấn dữ liệu cho Quản lý nội dung ---
+$allNotebooksStmt = $pdo->query('
+    SELECT n.id, n.title, n.description, n.created_at, u.email as user_email, 
+           COALESCE(vocab_counts.vocab_count, 0) as vocab_count 
+    FROM notebooks n 
+    JOIN users u ON n.user_id = u.id 
+    LEFT JOIN (
+        SELECT notebook_id, COUNT(*) as vocab_count 
+        FROM vocabularies 
+        GROUP BY notebook_id
+    ) vocab_counts ON n.id = vocab_counts.notebook_id
+    ORDER BY n.created_at DESC
+');
+$all_notebooks = $allNotebooksStmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
 
 <!DOCTYPE html>
@@ -97,12 +133,10 @@ $all_notebooks = $stmt->fetchAll();
             --admin-light: #f5f6fa;
             --admin-dark: #2f3542;
         }
-        
         body {
             background-color: var(--admin-light);
             font-family: 'Segoe UI', Roboto, sans-serif;
         }
-        
         .admin-sidebar {
             background: var(--admin-dark);
             min-height: 100vh;
@@ -114,13 +148,11 @@ $all_notebooks = $stmt->fetchAll();
             z-index: 1000;
             transition: all 0.3s;
         }
-        
         .admin-content {
             margin-left: 250px;
             padding: 20px;
             transition: all 0.3s;
         }
-        
         .admin-header {
             background: white;
             padding: 15px 20px;
@@ -128,7 +160,6 @@ $all_notebooks = $stmt->fetchAll();
             box-shadow: 0 2px 10px rgba(0,0,0,0.05);
             margin-bottom: 20px;
         }
-        
         .stat-card {
             background: white;
             border-radius: 10px;
@@ -137,101 +168,78 @@ $all_notebooks = $stmt->fetchAll();
             margin-bottom: 20px;
             transition: transform 0.3s;
         }
-        
         .stat-card:hover {
             transform: translateY(-5px);
         }
-        
         .stat-icon {
             font-size: 2.5rem;
             color: var(--admin-accent);
         }
-        
         .stat-value {
             font-size: 2rem;
             font-weight: bold;
             color: var(--admin-dark);
         }
-        
         .stat-label {
             color: var(--admin-secondary);
             font-size: 0.9rem;
         }
-        
         .nav-link {
             color: rgba(255,255,255,0.8);
             padding: 12px 20px;
             border-radius: 5px;
             margin: 5px 0;
             transition: all 0.3s;
+            text-decoration: none; /* Loại bỏ gạch chân mặc định */
         }
-        
         .nav-link:hover, .nav-link.active {
             background: rgba(255,255,255,0.1);
             color: white;
         }
-        
         .nav-link i {
             margin-right: 10px;
         }
-        
         .logo {
             font-size: 1.5rem;
             font-weight: bold;
             padding: 20px;
             border-bottom: 1px solid rgba(255,255,255,0.1);
         }
-        
-        .user-table img {
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            object-fit: cover;
-        }
-        
         .user-role {
             padding: 5px 10px;
             border-radius: 20px;
             font-size: 0.8rem;
             font-weight: 500;
         }
-        
         .role-admin {
             background: rgba(255,107,107,0.1);
             color: #ff6b6b;
         }
-        
         .role-user {
             background: rgba(46,213,115,0.1);
             color: #2ed573;
         }
-        
         .action-btn {
             padding: 5px 10px;
             font-size: 0.8rem;
         }
-        
         @media (max-width: 768px) {
             .admin-sidebar {
                 width: 70px;
                 overflow: hidden;
             }
-            
             .admin-sidebar .logo {
                 font-size: 1.2rem;
                 text-align: center;
                 padding: 15px 5px;
             }
-            
             .admin-sidebar .nav-link span {
                 display: none;
             }
-            
             .admin-sidebar .nav-link i {
                 margin-right: 0;
                 font-size: 1.2rem;
             }
-            
             .admin-content {
                 margin-left: 70px;
             }
@@ -298,11 +306,16 @@ $all_notebooks = $stmt->fetchAll();
         </div>
 
         <?php if ($message): ?>
-            <div class="alert alert-success"><?= $message ?></div>
+            <div class="alert alert-success alert-dismissible fade show" role="alert">
+                <?= htmlspecialchars($message) ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
         <?php endif; ?>
-        
         <?php if ($error): ?>
-            <div class="alert alert-danger"><?= $error ?></div>
+            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                <?= htmlspecialchars($error) ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
         <?php endif; ?>
 
         <!-- Tab Content -->
@@ -310,13 +323,12 @@ $all_notebooks = $stmt->fetchAll();
             <!-- Dashboard Tab -->
             <div class="tab-pane fade show active" id="dashboard">
                 <h5 class="mb-4">Thống kê hệ thống</h5>
-                
                 <div class="row">
                     <div class="col-md-4">
                         <div class="stat-card">
                             <div class="d-flex justify-content-between align-items-center">
                                 <div>
-                                    <div class="stat-value"><?= $stats['total_users'] ?></div>
+                                    <div class="stat-value"><?= (int)($stats['total_users'] ?? 0) ?></div>
                                     <div class="stat-label">Tổng số người dùng</div>
                                 </div>
                                 <div class="stat-icon">
@@ -325,12 +337,11 @@ $all_notebooks = $stmt->fetchAll();
                             </div>
                         </div>
                     </div>
-                    
                     <div class="col-md-4">
                         <div class="stat-card">
                             <div class="d-flex justify-content-between align-items-center">
                                 <div>
-                                    <div class="stat-value"><?= $stats['total_notebooks'] ?></div>
+                                    <div class="stat-value"><?= (int)($stats['total_notebooks'] ?? 0) ?></div>
                                     <div class="stat-label">Tổng số sổ tay</div>
                                 </div>
                                 <div class="stat-icon">
@@ -339,12 +350,11 @@ $all_notebooks = $stmt->fetchAll();
                             </div>
                         </div>
                     </div>
-                    
                     <div class="col-md-4">
                         <div class="stat-card">
                             <div class="d-flex justify-content-between align-items-center">
                                 <div>
-                                    <div class="stat-value"><?= $stats['total_vocabularies'] ?></div>
+                                    <div class="stat-value"><?= (int)($stats['total_vocabularies'] ?? 0) ?></div>
                                     <div class="stat-label">Tổng số từ vựng</div>
                                 </div>
                                 <div class="stat-icon">
@@ -354,43 +364,44 @@ $all_notebooks = $stmt->fetchAll();
                         </div>
                     </div>
                 </div>
-                
                 <div class="row mt-4">
                     <div class="col-md-6">
                         <div class="stat-card">
                             <h6>Người dùng mới (7 ngày qua)</h6>
-                            <div class="stat-value"><?= $stats['recent_users'] ?></div>
+                            <div class="stat-value"><?= (int)($stats['recent_users'] ?? 0) ?></div>
                         </div>
                     </div>
-                    
                     <div class="col-md-6">
                         <div class="stat-card">
                             <h6>Từ vựng mới (7 ngày qua)</h6>
-                            <div class="stat-value"><?= $stats['recent_vocabularies'] ?></div>
+                            <div class="stat-value"><?= (int)($stats['recent_vocabularies'] ?? 0) ?></div>
                         </div>
                     </div>
                 </div>
-                
                 <div class="row mt-4">
                     <div class="col-md-12">
                         <div class="stat-card">
                             <h6 class="mb-4">Top 5 người dùng tích cực</h6>
-                            <table class="table">
-                                <thead>
-                                    <tr>
-                                        <th>Email</th>
-                                        <th>Số từ vựng</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <?php foreach ($top_users as $user): ?>
-                                    <tr>
-                                        <td><?= htmlspecialchars($user['email']) ?></td>
-                                        <td><?= $user['vocab_count'] ?></td>
-                                    </tr>
-                                    <?php endforeach; ?>
-                                </tbody>
-                            </table>
+                            <?php if (empty($top_users)): ?>
+                                <p class="text-muted">Chưa có dữ liệu.</p>
+                            <?php else: ?>
+                                <table class="table">
+                                    <thead>
+                                        <tr>
+                                            <th>Email</th>
+                                            <th>Số từ vựng</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php foreach ($top_users as $user): ?>
+                                        <tr>
+                                            <td><?= htmlspecialchars($user['email']) ?></td>
+                                            <td><?= (int)$user['vocab_count'] ?></td>
+                                        </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            <?php endif; ?>
                         </div>
                     </div>
                 </div>
@@ -399,55 +410,57 @@ $all_notebooks = $stmt->fetchAll();
             <!-- Users Tab -->
             <div class="tab-pane fade" id="users">
                 <h5 class="mb-4">Quản lý người dùng</h5>
-                
                 <div class="card">
                     <div class="card-body">
                         <div class="table-responsive">
-                            <table class="table table-hover">
-                                <thead>
-                                    <tr>
-                                        <th>ID</th>
-                                        <th>Email</th>
-                                        <th>Quyền</th>
-                                        <th>Ngày tạo</th>
-                                        <th>Hành động</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <?php foreach ($users as $user): ?>
-                                    <tr>
-                                        <td><?= $user['id'] ?></td>
-                                        <td><?= htmlspecialchars($user['email']) ?></td>
-                                        <td>
-                                            <span class="user-role <?= $user['role'] === 'admin' ? 'role-admin' : 'role-user' ?>">
-                                                <?= $user['role'] === 'admin' ? 'Admin' : 'User' ?>
-                                            </span>
-                                        </td>
-                                        <td><?= date('d/m/Y', strtotime($user['created_at'])) ?></td>
-                                        <td>
-                                            <div class="btn-group">
-                                                <button type="button" class="btn btn-sm btn-outline-primary action-btn" 
-                                                        data-bs-toggle="modal" data-bs-target="#changeRoleModal"
-                                                        data-user-id="<?= $user['id'] ?>"
-                                                        data-user-email="<?= htmlspecialchars($user['email']) ?>"
-                                                        data-user-role="<?= $user['role'] ?>">
-                                                    <i class="bi bi-shield"></i> Đổi quyền
-                                                </button>
-                                                
-                                                <?php if ($user['id'] !== $user_id): ?>
-                                                <button type="button" class="btn btn-sm btn-outline-danger action-btn"
-                                                        data-bs-toggle="modal" data-bs-target="#deleteUserModal"
-                                                        data-user-id="<?= $user['id'] ?>"
-                                                        data-user-email="<?= htmlspecialchars($user['email']) ?>">
-                                                    <i class="bi bi-trash"></i> Xóa
-                                                </button>
-                                                <?php endif; ?>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                    <?php endforeach; ?>
-                                </tbody>
-                            </table>
+                            <?php if (empty($users)): ?>
+                                <p class="text-muted">Chưa có người dùng nào.</p>
+                            <?php else: ?>
+                                <table class="table table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>ID</th>
+                                            <th>Email</th>
+                                            <th>Quyền</th>
+                                            <th>Ngày tạo</th>
+                                            <th>Hành động</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php foreach ($users as $user): ?>
+                                        <tr>
+                                            <td><?= (int)$user['id'] ?></td>
+                                            <td><?= htmlspecialchars($user['email']) ?></td>
+                                            <td>
+                                                <span class="user-role <?= $user['role'] === 'admin' ? 'role-admin' : 'role-user' ?>">
+                                                    <?= $user['role'] === 'admin' ? 'Admin' : 'User' ?>
+                                                </span>
+                                            </td>
+                                            <td><?= date('d/m/Y', strtotime($user['created_at'])) ?></td>
+                                            <td>
+                                                <div class="btn-group">
+                                                    <button type="button" class="btn btn-sm btn-outline-primary action-btn"
+                                                            data-bs-toggle="modal" data-bs-target="#changeRoleModal"
+                                                            data-user-id="<?= (int)$user['id'] ?>"
+                                                            data-user-email="<?= htmlspecialchars($user['email']) ?>"
+                                                            data-user-role="<?= htmlspecialchars($user['role']) ?>">
+                                                        <i class="bi bi-shield"></i> Đổi quyền
+                                                    </button>
+                                                    <?php if ((int)$user['id'] !== $user_id): ?>
+                                                    <button type="button" class="btn btn-sm btn-outline-danger action-btn"
+                                                            data-bs-toggle="modal" data-bs-target="#deleteUserModal"
+                                                            data-user-id="<?= (int)$user['id'] ?>"
+                                                            data-user-email="<?= htmlspecialchars($user['email']) ?>">
+                                                        <i class="bi bi-trash"></i> Xóa
+                                                    </button>
+                                                    <?php endif; ?>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            <?php endif; ?>
                         </div>
                     </div>
                 </div>
@@ -456,7 +469,6 @@ $all_notebooks = $stmt->fetchAll();
             <!-- Content Tab -->
             <div class="tab-pane fade" id="content">
                 <h5 class="mb-4">Quản lý nội dung</h5>
-                
                 <div class="row">
                     <div class="col-md-12">
                         <div class="card mb-4">
@@ -465,28 +477,32 @@ $all_notebooks = $stmt->fetchAll();
                             </div>
                             <div class="card-body">
                                 <div class="table-responsive">
-                                    <table class="table table-hover">
-                                        <thead>
-                                            <tr>
-                                                <th>ID</th>
-                                                <th>Tiêu đề</th>
-                                                <th>Người tạo</th>
-                                                <th>Số từ vựng</th>
-                                                <th>Ngày tạo</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            <?php foreach ($all_notebooks as $notebook): ?>
-                                            <tr>
-                                                <td><?= $notebook['id'] ?></td>
-                                                <td><?= htmlspecialchars($notebook['title']) ?></td>
-                                                <td><?= htmlspecialchars($notebook['user_email']) ?></td>
-                                                <td><span class="badge bg-info"><?= $notebook['vocab_count'] ?></span></td>
-                                                <td><?= date('d/m/Y', strtotime($notebook['created_at'])) ?></td>
-                                            </tr>
-                                            <?php endforeach; ?>
-                                        </tbody>
-                                    </table>
+                                    <?php if (empty($all_notebooks)): ?>
+                                        <p class="text-muted">Chưa có sổ tay nào.</p>
+                                    <?php else: ?>
+                                        <table class="table table-hover">
+                                            <thead>
+                                                <tr>
+                                                    <th>ID</th>
+                                                    <th>Tiêu đề</th>
+                                                    <th>Người tạo</th>
+                                                    <th>Số từ vựng</th>
+                                                    <th>Ngày tạo</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <?php foreach ($all_notebooks as $notebook): ?>
+                                                <tr>
+                                                    <td><?= (int)$notebook['id'] ?></td>
+                                                    <td><?= htmlspecialchars($notebook['title']) ?></td>
+                                                    <td><?= htmlspecialchars($notebook['user_email']) ?></td>
+                                                    <td><span class="badge bg-info"><?= (int)$notebook['vocab_count'] ?></span></td>
+                                                    <td><?= date('d/m/Y', strtotime($notebook['created_at'])) ?></td>
+                                                </tr>
+                                                <?php endforeach; ?>
+                                            </tbody>
+                                        </table>
+                                    <?php endif; ?>
                                 </div>
                             </div>
                         </div>
@@ -497,30 +513,25 @@ $all_notebooks = $stmt->fetchAll();
             <!-- Settings Tab -->
             <div class="tab-pane fade" id="settings">
                 <h5 class="mb-4">Cài đặt hệ thống</h5>
-                
                 <div class="card">
                     <div class="card-body">
                         <form method="post" action="">
                             <div class="mb-3">
                                 <label class="form-label">Tiêu đề trang web</label>
-                                <input type="text" class="form-control" value="Germanly - Học tiếng Đức hiệu quả">
+                                <input type="text" class="form-control" name="site_title" value="Germanly - Học tiếng Đức hiệu quả">
                             </div>
-                            
                             <div class="mb-3">
                                 <label class="form-label">Mô tả trang web</label>
-                                <textarea class="form-control" rows="3">Ứng dụng học từ vựng tiếng Đức với flashcard và quiz</textarea>
+                                <textarea class="form-control" name="site_description" rows="3">Ứng dụng học từ vựng tiếng Đức với flashcard và quiz</textarea>
                             </div>
-                            
                             <div class="mb-3">
                                 <label class="form-label">Email liên hệ</label>
-                                <input type="email" class="form-control" value="contact@germanly.com">
+                                <input type="email" class="form-control" name="contact_email" value="contact@germanly.com">
                             </div>
-                            
                             <div class="mb-3 form-check">
-                                <input type="checkbox" class="form-check-input" id="enableRegistration" checked>
+                                <input type="checkbox" class="form-check-input" name="enable_registration" id="enableRegistration" checked>
                                 <label class="form-check-label" for="enableRegistration">Cho phép đăng ký tài khoản mới</label>
                             </div>
-                            
                             <button type="submit" class="btn btn-primary">
                                 <i class="bi bi-save"></i> Lưu cài đặt
                             </button>
@@ -543,9 +554,7 @@ $all_notebooks = $stmt->fetchAll();
                     <div class="modal-body">
                         <input type="hidden" name="action" value="change_role">
                         <input type="hidden" name="user_id" id="changeRoleUserId">
-                        
                         <p>Bạn đang thay đổi quyền cho người dùng: <strong id="changeRoleUserEmail"></strong></p>
-                        
                         <div class="mb-3">
                             <label class="form-label">Quyền mới</label>
                             <select name="new_role" class="form-select" id="newRoleSelect">
@@ -575,11 +584,9 @@ $all_notebooks = $stmt->fetchAll();
                     <div class="modal-body">
                         <input type="hidden" name="action" value="delete_user">
                         <input type="hidden" name="user_id" id="deleteUserId">
-                        
                         <div class="alert alert-danger">
                             <i class="bi bi-exclamation-triangle"></i> Cảnh báo: Hành động này không thể hoàn tác!
                         </div>
-                        
                         <p>Bạn có chắc chắn muốn xóa người dùng: <strong id="deleteUserEmail"></strong>?</p>
                         <p>Tất cả dữ liệu liên quan đến người dùng này sẽ bị xóa vĩnh viễn, bao gồm:</p>
                         <ul>
@@ -605,19 +612,17 @@ $all_notebooks = $stmt->fetchAll();
                 const userId = this.getAttribute('data-user-id');
                 const userEmail = this.getAttribute('data-user-email');
                 const userRole = this.getAttribute('data-user-role');
-                
                 document.getElementById('changeRoleUserId').value = userId;
                 document.getElementById('changeRoleUserEmail').textContent = userEmail;
                 document.getElementById('newRoleSelect').value = userRole;
             });
         });
-        
+
         // Xử lý modal xóa người dùng
         document.querySelectorAll('[data-bs-target="#deleteUserModal"]').forEach(button => {
             button.addEventListener('click', function() {
                 const userId = this.getAttribute('data-user-id');
                 const userEmail = this.getAttribute('data-user-email');
-                
                 document.getElementById('deleteUserId').value = userId;
                 document.getElementById('deleteUserEmail').textContent = userEmail;
             });

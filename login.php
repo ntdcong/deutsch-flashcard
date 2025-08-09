@@ -313,7 +313,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <body>
     <div class="login-card mx-auto">
         <div class="text-center mb-4 w-100">
-            <div class="logo mb-2"><i class="bi bi-lightning-charge"></i> Germanly</div>
+            <div class="logo">
+                <i></i> GERMANLY
+            </div>
             <h4>Đăng nhập</h4>
             <p class="text-muted">Chào mừng bạn quay trở lại!</p>
         </div>
@@ -328,14 +330,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <div class="input-group">
                 <div class="position-relative">
                     <input type="email" class="form-control" name="email" id="email" 
-                           placeholder="Nhập email của bạn" required autofocus autocomplete="username">
+                        placeholder="Nhập email của bạn" required autocomplete="username">
                 </div>
             </div>
             
             <div class="input-group">
                 <div class="position-relative">
-                    <input type="password" class="form-control" name="password" id="password" 
-                           placeholder="Nhập mật khẩu" required autocomplete="current-password">
+                    <input type="password" name="password" id="password" class="form-control"
+                    placeholder="Nhập mật khẩu của bạn" required autocomplete="current-password">
+                    <button type="button" class="btn btn-outline-secondary toggle-password" data-target="password" style="position: absolute; right: 5px; top: 50%; transform: translateY(-50%); z-index: 10; border: none; background: transparent;" aria-label="Hiện mật khẩu">
+                        <i class="bi bi-eye"></i>
+                    </button>
                 </div>
             </div>
             
@@ -343,6 +348,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 Đăng nhập
             </button>
         </form>
+
         
         <div class="mt-4 text-center">
             <p>Chưa có tài khoản? <a href="register.php" class="ms-1">Đăng ký ngay</a></p>
@@ -354,6 +360,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div>
     
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Xử lý nút toggle mật khẩu
+        document.querySelectorAll('.toggle-password').forEach(button => {
+            button.addEventListener('click', function() {
+                const targetId = this.getAttribute('data-target');
+                const passwordInput = document.getElementById(targetId);
+                const icon = this.querySelector('i');
+                
+                if (passwordInput.type === 'password') {
+                    passwordInput.type = 'text';
+                    icon.classList.remove('bi-eye');
+                    icon.classList.add('bi-eye-slash');
+                } else {
+                    passwordInput.type = 'password';
+                    icon.classList.remove('bi-eye-slash');
+                    icon.classList.add('bi-eye');
+                }
+            });
+        });
+    });
+    </script>
 </body>
 </html>
 </body>
