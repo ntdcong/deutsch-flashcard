@@ -7,6 +7,8 @@ if (!isset($_SESSION['user_id'])) {
 }
 $user_id = $_SESSION['user_id'];
 $message = '';
+
+// ====== Actions (giữ nguyên logic) ======
 // Thêm nhóm sổ tay
 if (isset($_POST['add_group'])) {
     $group_name = trim($_POST['group_name'] ?? '');
@@ -56,22 +58,32 @@ if (isset($_POST['edit_notebook'])) {
 // Xoá nhóm
 if (isset($_GET['delete_group'])) {
     $gid = (int)$_GET['delete_group'];
-    // Chuyển tất cả sổ tay trong nhóm này về không nhóm
     $pdo->prepare('UPDATE notebooks SET group_id=NULL WHERE group_id=? AND user_id=?')->execute([$gid, $user_id]);
-    // Xoá nhóm
     $pdo->prepare('DELETE FROM notebook_groups WHERE id=? AND user_id=?')->execute([$gid, $user_id]);
     $message = 'Đã xoá nhóm. Các sổ tay trong nhóm đã chuyển về "không nhóm"!';
 }
-// Lấy danh sách nhóm
+
+// ====== Queries (giữ nguyên chức năng) ======
 $stmt = $pdo->prepare('SELECT * FROM notebook_groups WHERE user_id = ? ORDER BY created_at DESC');
 $stmt->execute([$user_id]);
 $groups = $stmt->fetchAll();
-// Lấy danh sách sổ tay theo nhóm
+
 $stmt = $pdo->prepare('SELECT * FROM notebooks WHERE user_id = ? ORDER BY created_at DESC');
 $stmt->execute([$user_id]);
 $notebooks = $stmt->fetchAll();
 
-// ---- Bổ sung: đếm số từ / sổ tay để hiện footer
+// Tìm kiếm theo tiêu đề/mô tả
+$keyword = trim($_GET['q'] ?? '');
+if ($keyword !== '') {
+    $kw = mb_strtolower($keyword);
+    $notebooks = array_values(array_filter($notebooks, function ($nb) use ($kw) {
+        $t = mb_strtolower($nb['title'] ?? '');
+        $d = mb_strtolower($nb['description'] ?? '');
+        return (mb_stripos($t, $kw) !== false) || (mb_stripos($d, $kw) !== false);
+    }));
+}
+
+// Đếm số từ / sổ tay (cho danh sách đang hiển thị)
 $counts = [];
 if ($notebooks) {
     $ids = array_column($notebooks, 'id');
@@ -82,7 +94,7 @@ if ($notebooks) {
         $counts[(int)$r['notebook_id']] = (int)$r['cnt'];
     }
 }
-// ---- Bổ sung: kiểm tra có genus der/die/das để bật nút Giống
+// Kiểm tra “Giống”
 $genderReady = [];
 if ($notebooks) {
     $ids = array_column($notebooks, 'id');
@@ -100,464 +112,1220 @@ if ($notebooks) {
     }
 }
 
-// Gom sổ tay theo group_id
+// Gom theo group (sau khi lọc tìm kiếm)
 $notebooks_by_group = [];
 foreach ($notebooks as $nb) {
     $gid = $nb['group_id'] ?? 0;
     $notebooks_by_group[$gid][] = $nb;
 }
-// Xử lý lọc nhóm
+// Lọc nhóm
 $selected_group = isset($_GET['group']) ? $_GET['group'] : 'all';
 ?>
 <!DOCTYPE html>
 <html lang="vi">
+
 <head>
     <meta charset="UTF-8">
     <title>Quản lý Sổ tay - Flashcard</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <!-- libs -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
-    <style>
-        .nb2-card{border:1px solid #000000ff;border-radius:16px;background:#f8fcff;box-shadow:0 6px 20px rgba(28,39,61,.05);overflow:hidden;}
-        .nb2-header{display:flex;gap:12px;align-items:flex-start;padding:14px;border-bottom:1px solid #d5eaff;background:#a9d5ff;}
-        .nb2-avatar{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;flex:0 0 auto;background:linear-gradient(135deg,#f1f6ff,#f9fbff);color:#2563eb;font-size:18px;border:1px solid #e0e7ff;}
-        .nb2-title{font-weight:700;color:#1f2937;display:flex;align-items:center;gap:6px;}
-        .nb2-title i{color:#374151;}
-        .nb2-desc{color:#4b5563;margin-top:2px;}
-        .nb2-desc.clamp-2{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
-        .nb2-actions{padding:12px;display:flex;flex-wrap:wrap;gap:10px;}
-        .nb2-btn{display:flex;align-items:center;justify-content:center;gap:8px;padding:8px 14px;width:130px;border:2px solid #000;border-radius:999px;font-weight:600;font-size:.95rem;background:#fff;text-decoration:none}
-        .nb2-btn i{font-size:18px}
-        @media(max-width:160px){
-        .nb2-btn{width:100%;}}
-        .nb2-btn:focus{outline:none;box-shadow:0 0 0 0.15rem rgba(99,102,241,.15)}
-        .nb2-warn{border-color:#fbbf24;color:#b45309;}
-        .nb2-info{border-color:#38bdf8;color:#0369a1;}
-        .nb2-primary{border-color:#3b82f6;color:#1d4ed8;}
-        .nb2-dark{border-color:#111827;color:#111827;}
-        .nb2-success{border-color:#22c55e;color:#065f46;}
-        .nb2-gray{border-color:#9ca3af;color:#374151;}
-        .nb2-danger{border-color:#ef4444;color:#991b1b;}
-        .nb2-footer{padding:10px 14px;border-top:1px solid #d5eaff;background:#f0f8ff;display:flex;align-items:center;justify-content:space-between;gap:8px;}
-        .nb2-meta{color:#4b5563;font-size:.9rem;display:flex;align-items:center;gap:6px;}
-        .nb2-mini{display:flex;gap:8px;}
-        .nb2-mini .btn{border-radius:10px;padding:6px 10px;font-size:14px;}
-        .nb2-grid{display:grid;grid-template-columns:1fr;gap:14px;}
-        @media (min-width:576px){.nb2-grid{grid-template-columns:repeat(2,1fr);}}
-        @media (min-width:992px){.nb2-grid{grid-template-columns:repeat(3,1fr);}}
-        @media (max-width:420px){.nb2-btn{padding:8px 12px;font-size:.9rem;}}
-    </style>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
+    <!-- Styles (giống giao diện mẫu) -->
     <style>
-        .notebook-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
-        @media(max-width:576px){.notebook-grid{grid-template-columns:1fr;gap:12px}}
-        .nb2-card{height:100%}
-        .nb2-actions{display:flex;flex-wrap:wrap;gap:10px}
-        .nb2-btn{white-space:nowrap}
-    </style>
+        :root {
+            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --secondary-gradient: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            --success-gradient: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            --warning-gradient: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+            --danger-gradient: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+            --surface: #ffffff;
+            --surface-secondary: #f8fafc;
+            --surface-tertiary: #f1f5f9;
+            --border: rgba(15, 23, 42, .08);
+            --shadow-sm: 0 1px 2px rgba(0, 0, 0, .05);
+            --shadow: 0 1px 3px rgba(0, 0, 0, .1), 0 1px 2px rgba(0, 0, 0, .06);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, .1), 0 4px 6px -2px rgba(0, 0, 0, .05);
+            --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, .1), 0 10px 10px -5px rgba(0, 0, 0, .04);
+            --text-primary: #0f172a;
+            --text-secondary: #475569;
+            --text-tertiary: #94a3b8;
+            --border-radius: 16px;
+            --border-radius-lg: 24px;
+        }
 
-    <style>
-        body { background:#F9FAFB; font-family:'Segoe UI', sans-serif; }
-        .navbar { background: linear-gradient(to right, rgb(90, 97, 229), rgb(140, 242, 255)); box-shadow:0 2px 8px rgba(0,0,0,.05); }
-        .navbar-brand { font-weight:bold; font-size:1.5rem; color:#fff; }
-        .group-card { background:#fff; border-radius:1.2rem; box-shadow:0 4px 24px rgba(0,0,0,.07); padding:1.5rem 1.2rem; margin-bottom:2rem; }
-        .group-header { display:flex; align-items:center; gap:.7rem; margin-bottom:1rem; }
-        .group-header .icon { font-size:2rem; color:#0d6efd; }
-        .group-title { font-size:1.2rem; font-weight:600; color:#0d6efd; }
-        @media (max-width:768px){ .group-card{padding:1rem .5rem} .notebook-grid{gap:.7rem} }
-        .modal .form-label { font-weight:500; }
+        * {
+            box-sizing: border-box
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: var(--text-primary);
+            line-height: 1.6
+        }
+
+        .main-container {
+            background: var(--surface-secondary);
+            border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0;
+            margin-top: 2rem;
+            min-height: calc(100vh - 2rem);
+            overflow: hidden
+        }
+
+        /* Navbar */
+        .modern-navbar {
+            background: rgba(255, 255, 255, .95);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border);
+            padding: 1rem 0;
+            position: sticky;
+            top: 0;
+            z-index: 1000
+        }
+
+        .navbar-brand {
+            font-weight: 700;
+            font-size: 1.75rem;
+            background: var(--primary-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            text-decoration: none
+        }
+
+        .logout-btn {
+            background: var(--danger-gradient);
+            border: none;
+            color: #fff;
+            padding: .5rem 1.25rem;
+            border-radius: 50px;
+            font-weight: 500;
+            transition: .3s;
+            box-shadow: var(--shadow)
+        }
+
+        .logout-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-lg);
+            color: #fff
+        }
+
+        /* Action section */
+        .action-section {
+            padding: 2rem 0 1rem
+        }
+
+        .modern-btn {
+            border: none;
+            padding: .875rem 2rem;
+            border-radius: 50px;
+            font-weight: 600;
+            color: #fff;
+            text-decoration: none;
+            transition: .3s cubic-bezier(.4, 0, .2, 1);
+            box-shadow: var(--shadow);
+            position: relative;
+            overflow: hidden;
+            display: inline-flex;
+            align-items: center;
+            gap: .5rem
+        }
+
+        .modern-btn:hover {
+            transform: translateY(-3px);
+            box-shadow: var(--shadow-xl);
+            color: #fff
+        }
+
+        .modern-btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .2), transparent);
+            transition: left .5s
+        }
+
+        .modern-btn:hover::before {
+            left: 100%
+        }
+
+        .btn-create-group {
+            background: var(--primary-gradient)
+        }
+
+        .btn-create-notebook {
+            background: var(--success-gradient)
+        }
+
+        .btn-import {
+            background: var(--secondary-gradient)
+        }
+
+        /* Filter */
+        .filter-section {
+            background: var(--surface);
+            border-radius: var(--border-radius);
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            box-shadow: var(--shadow);
+            border: 1px solid var(--border)
+        }
+
+        .filter-label {
+            color: var(--text-secondary);
+            font-weight: 500;
+            margin-bottom: .5rem
+        }
+
+        .modern-select {
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: .75rem 1rem;
+            background: var(--surface);
+            font-weight: 500;
+            color: var(--text-primary);
+            transition: .3s;
+            box-shadow: var(--shadow-sm)
+        }
+
+        .modern-select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, .1)
+        }
+
+        .search-input {
+            min-width: 260px
+        }
+
+        @media(max-width:576px) {
+            .search-input {
+                min-width: 0;
+                width: 100%
+            }
+        }
+
+        /* Group card */
+        .group-card {
+            background: var(--surface);
+            border-radius: var(--border-radius-lg);
+            margin-bottom: 2rem;
+            overflow: hidden;
+            box-shadow: var(--shadow-lg);
+            border: 1px solid var(--border);
+            transition: .3s
+        }
+
+        .group-card:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-xl)
+        }
+
+        .group-header {
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+            padding: 1.5rem 2rem;
+            cursor: pointer;
+            transition: .3s;
+            border-bottom: 1px solid var(--border);
+            position: relative
+        }
+
+        .group-header:hover {
+            background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)
+        }
+
+        .group-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 3rem;
+            height: 3rem;
+            background: var(--primary-gradient);
+            border-radius: 16px;
+            color: #fff;
+            font-size: 1.5rem;
+            margin-right: 1rem;
+            box-shadow: var(--shadow)
+        }
+
+        .group-title {
+            font-size: 1.375rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin: 0
+        }
+
+        .group-delete-btn {
+            background: var(--danger-gradient);
+            border: none;
+            color: #fff;
+            padding: .5rem;
+            border-radius: 10px;
+            transition: .3s;
+            margin-left: 1rem
+        }
+
+        .group-delete-btn:hover {
+            transform: scale(1.1);
+            box-shadow: var(--shadow)
+        }
+
+        .toggle-icon {
+            position: absolute;
+            right: 2rem;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 1.5rem;
+            color: var(--text-tertiary);
+            transition: .3s
+        }
+
+        /* Notebook grid */
+        .notebook-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 1.5rem;
+            padding: 2rem
+        }
+
+        @media(max-width:768px) {
+            .notebook-grid {
+                grid-template-columns: 1fr;
+                padding: 1rem;
+                gap: 1rem
+            }
+        }
+
+        /* Notebook card */
+        .notebook-card {
+            background: var(--surface);
+            border-radius: var(--border-radius);
+            overflow: hidden;
+            box-shadow: var(--shadow);
+            border: 1px solid var(--border);
+            transition: .3s cubic-bezier(.4, 0, .2, 1);
+            height: fit-content
+        }
+
+        .notebook-card:hover {
+            transform: translateY(-4px);
+            box-shadow: var(--shadow-xl);
+            border-color: rgba(102, 126, 234, .2)
+        }
+
+        .notebook-header {
+            background: linear-gradient(135deg, #fafafa 0%, #f4f4f5 100%);
+            padding: 1.5rem;
+            border-bottom: 1px solid var(--border)
+        }
+
+        .notebook-avatar {
+            width: 3rem;
+            height: 3rem;
+            border-radius: 12px;
+            background: var(--primary-gradient);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-size: 1.25rem;
+            margin-bottom: 1rem;
+            box-shadow: var(--shadow)
+        }
+
+        .notebook-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: .5rem;
+            line-height: 1.4
+        }
+
+        .notebook-description {
+            color: var(--text-secondary);
+            font-size: .9rem;
+            line-height: 1.5;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden
+        }
+
+        /* Actions */
+        .notebook-actions {
+            padding: 1.5rem;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: .75rem
+        }
+
+        @media(max-width:480px) {
+            .notebook-actions {
+                grid-template-columns: 1fr 1fr
+            }
+        }
+
+        /* fallback nhỏ */
+        .action-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: .5rem;
+            padding: .75rem 1rem;
+            border-radius: 10px;
+            font-weight: 500;
+            font-size: .875rem;
+            text-decoration: none;
+            transition: .3s;
+            border: 1px solid var(--border);
+            background: var(--surface);
+            color: var(--text-primary);
+            position: relative;
+            overflow: hidden
+        }
+
+        .action-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: var(--shadow);
+            text-decoration: none
+        }
+
+        .action-btn.flashcard {
+            border-color: #f59e0b;
+            color: #f59e0b
+        }
+
+        .action-btn.flashcard:hover {
+            background: #f59e0b;
+            color: #fff
+        }
+
+        .action-btn.quiz {
+            border-color: #06b6d4;
+            color: #06b6d4
+        }
+
+        .action-btn.quiz:hover {
+            background: #06b6d4;
+            color: #fff
+        }
+
+        .action-btn.vocab {
+            border-color: #3b82f6;
+            color: #3b82f6
+        }
+
+        .action-btn.vocab:hover {
+            background: #3b82f6;
+            color: #fff
+        }
+
+        .action-btn.gender {
+            border-color: #6366f1;
+            color: #6366f1
+        }
+
+        .action-btn.gender:hover {
+            background: #6366f1;
+            color: #fff
+        }
+
+        .action-btn.excel {
+            border-color: #10b981;
+            color: #10b981
+        }
+
+        .action-btn.excel:hover {
+            background: #10b981;
+            color: #fff
+        }
+
+        .action-btn.share {
+            border-color: #8b5cf6;
+            color: #8b5cf6
+        }
+
+        .action-btn.share:hover {
+            background: #8b5cf6;
+            color: #fff
+        }
+
+        .action-btn.disabled {
+            opacity: .5;
+            pointer-events: none;
+            color: var(--text-tertiary);
+            border-color: var(--border)
+        }
+
+        /* 2 dòng gọn trên mobile: 3 cột => 6 nút = 2 hàng */
+        @media(max-width:576px) {
+            .notebook-actions {
+                grid-template-columns: repeat(3, minmax(0, 1fr))
+            }
+
+            .action-btn {
+                padding: .65rem .5rem;
+                font-size: .82rem
+            }
+
+            .action-btn i {
+                font-size: 1rem
+            }
+
+            .action-btn span {
+                white-space: nowrap
+            }
+
+            .only-desktop {
+                display: none !important
+            }
+        }
+
+        .only-mobile {
+            display: none
+        }
+
+        @media(max-width:576px) {
+            .only-mobile {
+                display: inline-flex
+            }
+        }
+
+        /* Footer mini actions */
+        .notebook-footer {
+            padding: 1rem 1.5rem;
+            background: var(--surface-secondary);
+            border-top: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 1rem
+        }
+
+        .notebook-meta {
+            color: var(--text-secondary);
+            font-size: .875rem;
+            display: flex;
+            align-items: center;
+            gap: .5rem
+        }
+
+        .notebook-actions-mini {
+            display: flex;
+            gap: .5rem
+        }
+
+        .mini-btn {
+            padding: .5rem;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--surface);
+            color: var(--text-secondary);
+            transition: .3s;
+            text-decoration: none
+        }
+
+        .mini-btn:hover {
+            background: var(--text-secondary);
+            color: #fff;
+            text-decoration: none
+        }
+
+        .mini-btn.danger:hover {
+            background: #ef4444;
+            border-color: #ef4444
+        }
+
+        /* Empty */
+        .empty-state {
+            text-align: center;
+            padding: 4rem 2rem;
+            color: var(--text-secondary)
+        }
+
+        .empty-state-icon {
+            width: 4rem;
+            height: 4rem;
+            background: var(--primary-gradient);
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 1.5rem;
+            color: #fff;
+            font-size: 2rem
+        }
+
+        .empty-state h3 {
+            color: var(--text-primary);
+            font-weight: 600;
+            margin-bottom: 1rem
+        }
+
+        /* Modal */
+        .modal-content {
+            border-radius: var(--border-radius);
+            border: none;
+            box-shadow: var(--shadow-xl)
+        }
+
+        .modal-header {
+            background: var(--surface-secondary);
+            border-bottom: 1px solid var(--border);
+            border-radius: var(--border-radius) var(--border-radius) 0 0
+        }
+
+        .modal-title {
+            font-weight: 600;
+            color: var(--text-primary)
+        }
+
+        .form-label {
+            font-weight: 500;
+            color: var(--text-secondary);
+            margin-bottom: .5rem
+        }
+
+        .form-control,
+        .form-select {
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: .75rem 1rem;
+            transition: .3s;
+            background: var(--surface)
+        }
+
+        .form-control:focus,
+        .form-select:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, .1);
+            outline: none
+        }
+
+        .modal-footer {
+            border-top: 1px solid var(--border);
+            background: var(--surface-secondary)
+        }
+
+        .btn-primary {
+            background: var(--primary-gradient);
+            border: none;
+            padding: .75rem 1.5rem;
+            border-radius: 10px;
+            font-weight: 500
+        }
+
+        .btn-success {
+            background: var(--success-gradient);
+            border: none;
+            padding: .75rem 1.5rem;
+            border-radius: 10px;
+            font-weight: 500
+        }
+
+        .btn-secondary {
+            background: var(--surface-tertiary);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            padding: .75rem 1.5rem;
+            border-radius: 10px;
+            font-weight: 500
+        }
+
+        .modern-alert {
+            background: rgba(102, 126, 234, .1);
+            border: 1px solid rgba(102, 126, 234, .2);
+            border-radius: var(--border-radius);
+            padding: 1rem 1.5rem;
+            color: #4c51bf;
+            margin-bottom: 2rem
+        }
+
+        .fade-in {
+            animation: fadeIn .5s ease-in
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px)
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0)
+            }
+        }
+
+        .slide-down {
+            animation: slideDown .3s ease-out
+        }
+
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-10px)
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0)
+            }
+        }
+
+        .d-none {
+            display: none !important
+        }
+
+        @media(max-width:768px) {
+            .main-container {
+                margin-top: 0;
+                border-radius: 0
+            }
+
+            .action-section {
+                padding: 1.5rem 1rem 1rem
+            }
+
+            .modern-btn {
+                padding: .75rem 1.5rem;
+                font-size: .9rem
+            }
+
+            .group-header {
+                padding: 1rem 1.5rem
+            }
+
+            .group-icon {
+                width: 2.5rem;
+                height: 2.5rem;
+                font-size: 1.25rem
+            }
+
+            .group-title {
+                font-size: 1.125rem
+            }
+
+            .toggle-icon {
+                right: 1.5rem
+            }
+        }
+
+        .modal,
+        .modal-backdrop {
+            will-change: opacity, transform;
+            backface-visibility: hidden
+        }
     </style>
 </head>
 
 <body>
-<nav class="navbar navbar-expand-lg">
-    <div class="container">
-        <a class="navbar-brand" href="home.php">GERMANLY</a>
-        <div class="d-flex">
-            <a href="logout.php" class="btn btn-outline-danger">
-                <i class="bi bi-box-arrow-right"></i> Đăng xuất
-            </a>
+    <!-- Navbar -->
+    <nav class="modern-navbar">
+        <div class="container">
+            <div class="d-flex justify-content-between align-items-center">
+                <a class="navbar-brand" href="home.php">GERMANLY</a>
+                <a href="logout.php" class="logout-btn">
+                    <i class="bi bi-box-arrow-right me-2"></i>Đăng xuất
+                </a>
+            </div>
         </div>
-    </div>
-</nav>
+    </nav>
 
-<div class="container mt-4 mb-5">
-    <!-- Các nút hành động chính -->
-    <div class="mb-4 text-center text-md-start">
-        <div class="d-flex flex-wrap justify-content-center justify-content-md-start gap-3">
-            <button class="btn d-flex align-items-center gap-2 px-4 py-2 rounded-pill shadow-sm border-0"
-                    style="background: linear-gradient(to right, #6a11cb, #2575fc); color: white; font-weight: 500;"
-                    data-bs-toggle="modal" data-bs-target="#modalAddGroup">
-                <i class="bi bi-folder-plus" style="font-size:1.2rem;"></i><span>Tạo nhóm</span>
-            </button>
-            <button class="btn d-flex align-items-center gap-2 px-4 py-2 rounded-pill shadow-sm border-0"
-                    style="background: linear-gradient(to right, #11998e, #38ef7d); color: white; font-weight: 500;"
-                    data-bs-toggle="modal" data-bs-target="#modalAddNotebook">
-                <i class="bi bi-journal-plus" style="font-size:1.2rem;"></i><span>Tạo sổ tay</span>
-            </button>
-            <a href="import_shared.php" class="btn d-flex align-items-center gap-2 px-4 py-2 rounded-pill shadow-sm border-0 text-white"
-               style="background: linear-gradient(to right, #f093fb, #f5576c); font-weight: 500;">
-                <i class="bi bi-download" style="font-size:1.2rem;"></i><span>Nhập chia sẻ</span>
-            </a>
-        </div>
-    </div>
-
-    <!-- Bộ lọc nhóm -->
-    <form method="get" class="mb-4 d-flex flex-column flex-md-row align-items-center gap-2">
-        <div class="d-flex align-items-center w-100 w-md-auto">
-            <label class="form-label mb-0 me-2" for="groupFilter"><i class="bi bi-filter"></i> Nhóm:</label>
-            <select name="group" id="groupFilter" class="form-select" style="max-width:220px;" onchange="this.form.submit()">
-                <option value="all" <?= $selected_group === 'all' ? 'selected' : '' ?>>Tất cả nhóm</option>
-                <?php foreach ($groups as $g): ?>
-                    <option value="<?= $g['id'] ?>" <?= $selected_group == $g['id'] ? 'selected' : '' ?>>
-                        <?= htmlspecialchars($g['name']) ?>
-                    </option>
-                <?php endforeach; ?>
-                <option value="none" <?= $selected_group === 'none' ? 'selected' : '' ?>>Không nhóm</option>
-            </select>
-        </div>
-    </form>
-
-    <?php if ($message): ?><div class="alert alert-info"><?= $message ?></div><?php endif; ?>
-
-    <?php if (count($groups) === 0): ?>
-        <div class="text-center my-5">
-            <div class="mb-3"><i class="bi bi-folder-plus" style="font-size:3rem;color:#0d6efd;"></i></div>
-            <h4>Bạn chưa có nhóm sổ tay nào</h4>
-            <button class="btn btn-primary btn-lg mt-3" data-bs-toggle="modal" data-bs-target="#modalAddGroup"><i class="bi bi-plus-circle"></i> Tạo nhóm mới</button>
-        </div>
-    <?php endif; ?>
-
-    <?php foreach ($groups as $g): ?>
-        <?php if ($selected_group === 'all' || $selected_group == $g['id']): ?>
-            <div class="group-card">
-                <div class="group-header" data-group="<?= $g['id'] ?>">
-                    <span class="icon"><i class="bi bi-folder-fill"></i></span>
-                    <span class="group-title"><?= htmlspecialchars($g['name']) ?></span>
-                    <form method="get" class="d-inline">
-                        <input type="hidden" name="delete_group" value="<?= $g['id'] ?>">
-                        <button class="btn btn-sm btn-danger ms-2" type="submit"
-                                onclick="return confirm('Xoá nhóm này? Các sổ tay sẽ chuyển về không nhóm.')"
-                                title="Xoá nhóm" style="min-width:32px;">
-                            <i class="bi bi-trash"></i>
-                        </button>
-                    </form>
-                    <?php if (!empty($notebooks_by_group[$g['id']])): ?>
-                        <i class="bi bi-chevron-down text-muted ms-auto toggle-icon"
-                           style="transition: transform 0.2s; cursor: pointer;"
-                           data-group="<?= $g['id'] ?>"></i>
-                    <?php endif; ?>
+    <div class="main-container">
+        <div class="container">
+            <!-- Action Section -->
+            <div class="action-section">
+                <div class="d-flex flex-column flex-md-row align-items-center justify-content-center gap-3">
+                    <button class="modern-btn btn-create-group" data-bs-toggle="modal" data-bs-target="#modalAddGroup">
+                        <i class="bi bi-folder-plus"></i><span>Tạo nhóm</span>
+                    </button>
+                    <button class="modern-btn btn-create-notebook" data-bs-toggle="modal" data-bs-target="#modalAddNotebook">
+                        <i class="bi bi-journal-plus"></i><span>Tạo sổ tay</span>
+                    </button>
+                    <a href="import_shared.php" class="modern-btn btn-import">
+                        <i class="bi bi-download"></i><span>Nhập chia sẻ</span>
+                    </a>
                 </div>
+            </div>
 
-                <div class="notebook-grid d-none" id="groupGrid<?= $g['id'] ?>">
-                    <?php if (!empty($notebooks_by_group[$g['id']])): ?>
-                        <?php foreach ($notebooks_by_group[$g['id']] as $nb): ?>
-                            <div class="nb2-card mb-3">
-                                <div class="nb2-header">
-                                    <div class="nb2-avatar"><i class="bi bi-journal-text"></i></div>
-                                    <div class="flex-grow-1">
-                                        <div class="nb2-title">
-                                            <?= htmlspecialchars($nb['title']) ?>
+            <!-- Filter Section (thêm ô tìm kiếm) -->
+            <div class="filter-section">
+                <form method="get" class="w-100">
+                    <div class="row g-3 align-items-center">
+                        <div class="col-12 col-md-auto">
+                            <label class="filter-label d-flex align-items-center gap-2 mb-0">
+                                <i class="bi bi-filter"></i> Lọc theo nhóm:
+                            </label>
+                        </div>
+
+                        <div class="col-12 col-md-12">
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="bi bi-search"></i></span>
+                                <input type="text" name="q" value="<?= htmlspecialchars($keyword) ?>" class="form-control search-input" placeholder="Tìm theo tiêu đề hoặc mô tả...">
+                                <?php if ($keyword !== ''): ?>
+                                    <a class="btn btn-outline-secondary" href="?group=<?= urlencode($selected_group) ?>"><i class="bi bi-x-lg"></i></a>
+                                <?php endif; ?>
+                                <button class="btn btn-primary" type="submit"><i class="bi bi-arrow-return-left me-1"></i>Tìm</button>
+                            </div>
+                        </div>
+
+                        <div class="col-12 col-md-3">
+                            <select name="group" class="modern-select w-100" onchange="this.form.submit()">
+                                <option value="all" <?= $selected_group === 'all' ? 'selected' : '' ?>>Tất cả nhóm</option>
+                                <?php foreach ($groups as $g): ?>
+                                    <option value="<?= $g['id'] ?>" <?= $selected_group == $g['id'] ? 'selected' : '' ?>><?= htmlspecialchars($g['name']) ?></option>
+                                <?php endforeach; ?>
+                                <option value="none" <?= $selected_group === 'none' ? 'selected' : '' ?>>Không nhóm</option>
+                            </select>
+                        </div>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Alert -->
+            <?php if ($message): ?>
+                <div class="modern-alert fade-in">
+                    <i class="bi bi-info-circle me-2"></i><?= htmlspecialchars($message) ?>
+                </div>
+            <?php endif; ?>
+
+            <!-- Empty State -->
+            <?php
+            $hasNoGroups = count($groups) === 0;
+            $hasNoUngroup = empty($notebooks_by_group[null]) && empty($notebooks_by_group[0]);
+            $hasNoAny = empty($notebooks);
+            if ($hasNoAny):
+            ?>
+                <div class="empty-state fade-in">
+                    <div class="empty-state-icon"><i class="bi bi-folder-plus"></i></div>
+                    <h3>Chào mừng đến với GERMANLY</h3>
+                    <p class="mb-4">Chưa có sổ tay nào<?= $keyword ? ' khớp từ khóa "' . htmlspecialchars($keyword) . '"' : '' ?>. Bắt đầu bằng cách tạo nhóm/sổ tay mới!</p>
+                    <button class="modern-btn btn-create-group" data-bs-toggle="modal" data-bs-target="#modalAddGroup">
+                        <i class="bi bi-plus-circle"></i><span>Tạo nhóm mới</span>
+                    </button>
+                </div>
+            <?php endif; ?>
+
+            <!-- Danh sách nhóm -->
+            <?php foreach ($groups as $g): ?>
+                <?php if ($selected_group === 'all' || $selected_group == $g['id']): ?>
+                    <div class="group-card fade-in">
+                        <div class="group-header" data-group="<?= $g['id'] ?>">
+                            <div class="d-flex align-items-center">
+                                <div class="group-icon"><i class="bi bi-folder-fill"></i></div>
+                                <h3 class="group-title mb-0"><?= htmlspecialchars($g['name']) ?></h3>
+
+                                <!-- Xoá nhóm -->
+                                <form method="get" class="d-inline" onClick="event.stopPropagation()">
+                                    <input type="hidden" name="delete_group" value="<?= $g['id'] ?>">
+                                    <button class="group-delete-btn" title="Xoá nhóm"
+                                        onclick="return confirm('Xoá nhóm này? Các sổ tay sẽ chuyển về không nhóm.')">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </form>
+                            </div>
+                            <?php if (!empty($notebooks_by_group[$g['id']])): ?>
+                                <i class="bi bi-chevron-down toggle-icon" data-group="<?= $g['id'] ?>"></i>
+                            <?php endif; ?>
+                        </div>
+
+                        <div class="notebook-grid d-none" id="groupGrid<?= $g['id'] ?>">
+                            <?php if (!empty($notebooks_by_group[$g['id']])): ?>
+                                <?php foreach ($notebooks_by_group[$g['id']] as $nb): ?>
+                                    <div class="notebook-card">
+                                        <div class="notebook-header">
+                                            <div class="notebook-avatar"><i class="bi bi-journal-text"></i></div>
+                                            <div class="notebook-title"><?= htmlspecialchars($nb['title']) ?></div>
+                                            <div class="notebook-description">
+                                                <?= $nb['description'] ? nl2br(htmlspecialchars($nb['description'])) : 'Chưa có mô tả…' ?>
+                                            </div>
                                         </div>
-                                        <div class="nb2-desc clamp-2">
-                                            <?= $nb['description'] ? nl2br(htmlspecialchars($nb['description'])) : '<span class="text-muted">Chưa có mô tả…</span>' ?>
+
+                                        <div class="notebook-actions">
+                                            <a href="study_flashcard.php?notebook_id=<?= $nb['id'] ?>" class="action-btn flashcard">
+                                                <i class="bi bi-journal-richtext"></i><span>Thẻ</span>
+                                            </a>
+                                            <a href="study_quiz.php?notebook_id=<?= $nb['id'] ?>" class="action-btn quiz">
+                                                <i class="bi bi-question-circle"></i><span>Quiz</span>
+                                            </a>
+                                            <a href="add_vocab.php?notebook_id=<?= $nb['id'] ?>" class="action-btn vocab">
+                                                <i class="bi bi-pencil-square"></i><span>Từ vựng</span>
+                                            </a>
+
+                                            <?php $canGender = !empty($genderReady[(int)$nb['id']]); ?>
+                                            <?php if ($canGender): ?>
+                                                <a href="study_gender.php?notebook_id=<?= $nb['id'] ?>" class="action-btn gender">
+                                                    <i class="bi bi-gender-ambiguous"></i><span>Giống</span>
+                                                </a>
+                                            <?php else: ?>
+                                                <span class="action-btn gender disabled" title="Chưa có danh từ có giống">
+                                                    <i class="bi bi-gender-ambiguous"></i><span>Giống</span>
+                                                </span>
+                                            <?php endif; ?>
+
+                                            <a href="import_excel.php?notebook_id=<?= $nb['id'] ?>" class="action-btn excel">
+                                                <i class="bi bi-file-earmark-excel"></i><span>Excel</span>
+                                            </a>
+                                            <a href="share_notebook.php?notebook_id=<?= $nb['id'] ?>" class="action-btn share">
+                                                <i class="bi bi-share"></i><span>Chia sẻ</span>
+                                            </a>
                                         </div>
+
+                                        <div class="notebook-footer">
+                                            <div class="notebook-meta">
+                                                <i class="bi bi-collection"></i>
+                                                <span><?= (int)($counts[(int)$nb['id']] ?? 0) ?> từ<?php if (!empty($nb['created_at'])): ?> • tạo <?= date('d/m/Y', strtotime($nb['created_at'])) ?><?php endif; ?></span>
+                                            </div>
+                                            <div class="notebook-actions-mini">
+                                                <button
+                                                    type="button"
+                                                    class="mini-btn"
+                                                    data-bs-toggle="modal"
+                                                    data-bs-target="#editNotebookModal"
+                                                    data-id="<?= (int)$nb['id'] ?>"
+                                                    data-title="<?= htmlspecialchars($nb['title'], ENT_QUOTES) ?>"
+                                                    data-desc="<?= htmlspecialchars($nb['description'] ?? '', ENT_QUOTES) ?>"
+                                                    data-group="<?= $nb['group_id'] !== null ? (int)$nb['group_id'] : '' ?>"
+                                                    title="Sửa">
+                                                    <i class="bi bi-pencil"></i>
+                                                </button>
+                                                <a href="?delete=<?= $nb['id'] ?>" class="mini-btn danger" onclick="return confirm('Bạn có chắc chắn muốn xoá sổ tay này?');" title="Xoá">
+                                                    <i class="bi bi-trash"></i>
+                                                </a>
+                                            </div>
+                                        </div>
+                                    </div>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                <?php endif; ?>
+            <?php endforeach; ?>
+
+            <!-- Khu “Không thuộc nhóm” -->
+            <?php if (($selected_group === 'all' || $selected_group === 'none') && (isset($notebooks_by_group[null]) || isset($notebooks_by_group[0]))): ?>
+                <div class="group-card fade-in">
+                    <div class="group-header">
+                        <div class="d-flex align-items-center">
+                            <div class="group-icon" style="background: linear-gradient(135deg, #f59e0b 0%, #f97316 100%);">
+                                <i class="bi bi-folder2-open"></i>
+                            </div>
+                            <h3 class="group-title mb-0">Không thuộc nhóm</h3>
+                        </div>
+                    </div>
+
+                    <div class="notebook-grid">
+                        <?php foreach (($notebooks_by_group[null] ?? []) + ($notebooks_by_group[0] ?? []) as $nb): ?>
+                            <div class="notebook-card">
+                                <div class="notebook-header">
+                                    <div class="notebook-avatar" style="background: linear-gradient(135deg, #f59e0b 0%, #f97316 100%);">
+                                        <i class="bi bi-journal-text"></i>
+                                    </div>
+                                    <div class="notebook-title"><?= htmlspecialchars($nb['title']) ?></div>
+                                    <div class="notebook-description">
+                                        <?= $nb['description'] ? nl2br(htmlspecialchars($nb['description'])) : 'Chưa có mô tả…' ?>
                                     </div>
                                 </div>
 
-                                <div class="nb2-actions">
-                                    <a href="study_flashcard.php?notebook_id=<?= $nb['id'] ?>" class="nb2-btn nb2-warn">
-                                        <i class="bi bi-journal-richtext"></i> Flashcard
+                                <div class="notebook-actions">
+                                    <a href="study_flashcard.php?notebook_id=<?= $nb['id'] ?>" class="action-btn flashcard">
+                                        <i class="bi bi-journal-richtext"></i><span>Flashcard</span>
                                     </a>
-                                    <a href="study_quiz.php?notebook_id=<?= $nb['id'] ?>" class="nb2-btn nb2-info">
-                                        <i class="bi bi-question-circle"></i> Quiz
+                                    <a href="study_quiz.php?notebook_id=<?= $nb['id'] ?>" class="action-btn quiz">
+                                        <i class="bi bi-question-circle"></i><span>Quiz</span>
                                     </a>
-                                    <a href="add_vocab.php?notebook_id=<?= $nb['id'] ?>" class="nb2-btn nb2-primary">
-                                        <i class="bi bi-pencil-square"></i> Từ vựng
+                                    <a href="add_vocab.php?notebook_id=<?= $nb['id'] ?>" class="action-btn vocab">
+                                        <i class="bi bi-pencil-square"></i><span>Từ vựng</span>
                                     </a>
 
                                     <?php $canGender = !empty($genderReady[(int)$nb['id']]); ?>
                                     <?php if ($canGender): ?>
-                                        <a href="study_gender.php?notebook_id=<?= $nb['id'] ?>" class="nb2-btn nb2-dark">
-                                            <i class="bi bi-gender-ambiguous"></i> Giống
+                                        <a href="study_gender.php?notebook_id=<?= $nb['id'] ?>" class="action-btn gender">
+                                            <i class="bi bi-gender-ambiguous"></i><span>Giống</span>
                                         </a>
                                     <?php else: ?>
-                                        <span class="nb2-btn nb2-gray" style="opacity:.6;pointer-events:none" title="Chưa có danh từ có giống">
-                                            <i class="bi bi-gender-ambiguous"></i> Giống
+                                        <span class="action-btn gender disabled" title="Chưa có danh từ có giống">
+                                            <i class="bi bi-gender-ambiguous"></i><span>Giống</span>
                                         </span>
                                     <?php endif; ?>
 
-                                    <a href="import_excel.php?notebook_id=<?= $nb['id'] ?>" class="nb2-btn nb2-success">
-                                        <i class="bi bi-file-earmark-excel"></i> Excel
+                                    <a href="import_excel.php?notebook_id=<?= $nb['id'] ?>" class="action-btn excel">
+                                        <i class="bi bi-file-earmark-excel"></i><span>Excel</span>
                                     </a>
-                                    <a href="share_notebook.php?notebook_id=<?= $nb['id'] ?>" class="nb2-btn nb2-primary">
-                                        <i class="bi bi-share"></i> Chia sẻ
+                                    <a href="share_notebook.php?notebook_id=<?= $nb['id'] ?>" class="action-btn share">
+                                        <i class="bi bi-share"></i><span>Chia sẻ</span>
+                                    </a>
+
+                                    <!-- Sửa/Xoá chỉ hiện trong grid trên desktop, mobile ẩn để giữ 2 dòng -->
+                                    <button
+                                        type="button"
+                                        class="action-btn only-desktop"
+                                        data-bs-toggle="modal"
+                                        data-bs-target="#editNotebookModal"
+                                        data-id="<?= (int)$nb['id'] ?>"
+                                        data-title="<?= htmlspecialchars($nb['title'], ENT_QUOTES) ?>"
+                                        data-desc="<?= htmlspecialchars($nb['description'] ?? '', ENT_QUOTES) ?>"
+                                        data-group="<?= $nb['group_id'] !== null ? (int)$nb['group_id'] : '' ?>">
+                                        <i class="bi bi-pencil"></i><span>Sửa</span>
+                                    </button>
+                                    <a href="?delete=<?= $nb['id'] ?>" class="action-btn only-desktop" onclick="return confirm('Bạn có chắc chắn muốn xoá sổ tay này?');">
+                                        <i class="bi bi-trash"></i><span>Xoá</span>
                                     </a>
                                 </div>
 
-                                <div class="nb2-footer">
-                                    <div class="nb2-meta">
+                                <div class="notebook-footer">
+                                    <div class="notebook-meta">
                                         <i class="bi bi-collection"></i>
-                                        <?= (int)($counts[(int)$nb['id']] ?? 0) ?> từ
-                                        <?php if (!empty($nb['created_at'])): ?> • tạo <?= date('d/m/Y', strtotime($nb['created_at'])) ?><?php endif; ?>
+                                        <span><?= (int)($counts[(int)$nb['id']] ?? 0) ?> từ<?php if (!empty($nb['created_at'])): ?> • tạo <?= date('d/m/Y', strtotime($nb['created_at'])) ?><?php endif; ?></span>
                                     </div>
-                                    <div class="nb2-mini">
-                                        <a href="#" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#editModal<?= $nb['id'] ?>" title="Sửa">
+                                    <div class="notebook-actions-mini">
+                                        <button
+                                            type="button"
+                                            class="mini-btn"
+                                            data-bs-toggle="modal"
+                                            data-bs-target="#editNotebookModal"
+                                            data-id="<?= (int)$nb['id'] ?>"
+                                            data-title="<?= htmlspecialchars($nb['title'], ENT_QUOTES) ?>"
+                                            data-desc="<?= htmlspecialchars($nb['description'] ?? '', ENT_QUOTES) ?>"
+                                            data-group="<?= $nb['group_id'] !== null ? (int)$nb['group_id'] : '' ?>"
+                                            title="Sửa">
                                             <i class="bi bi-pencil"></i>
-                                        </a>
-                                        <a href="?delete=<?= $nb['id'] ?>" class="btn btn-outline-danger btn-sm"
-                                           onclick="return confirm('Bạn có chắc chắn muốn xoá sổ tay này?');" title="Xoá">
+                                        </button>
+                                        <a href="?delete=<?= $nb['id'] ?>" class="mini-btn danger" onclick="return confirm('Bạn có chắc chắn muốn xoá sổ tay này?');" title="Xoá">
                                             <i class="bi bi-trash"></i>
                                         </a>
                                     </div>
                                 </div>
                             </div>
-
-                            <!-- Modal sửa sổ tay -->
-                            <div class="modal fade" id="editModal<?= $nb['id'] ?>" tabindex="-1">
-                                <div class="modal-dialog">
-                                    <form method="post" class="modal-content">
-                                        <div class="modal-header">
-                                            <h5 class="modal-title">Chỉnh sửa sổ tay</h5>
-                                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                                        </div>
-                                        <div class="modal-body">
-                                            <input type="hidden" name="notebook_id" value="<?= $nb['id'] ?>">
-                                            <div class="mb-3">
-                                                <label class="form-label">Tiêu đề</label>
-                                                <input type="text" name="title" class="form-control" value="<?= htmlspecialchars($nb['title']) ?>" required>
-                                            </div>
-                                            <div class="mb-3">
-                                                <label class="form-label">Mô tả</label>
-                                                <textarea name="description" class="form-control" rows="3"><?= htmlspecialchars($nb['description']) ?></textarea>
-                                            </div>
-                                            <div class="mb-3">
-                                                <label class="form-label">Nhóm</label>
-                                                <select name="group_id" class="form-select">
-                                                    <option value="">-- Không thuộc nhóm --</option>
-                                                    <?php foreach ($groups as $gg): ?>
-                                                        <option value="<?= $gg['id'] ?>" <?= ($nb['group_id'] == $gg['id']) ? 'selected' : '' ?>><?= htmlspecialchars($gg['name']) ?></option>
-                                                    <?php endforeach; ?>
-                                                </select>
-                                            </div>
-                                        </div>
-                                        <div class="modal-footer">
-                                            <button type="submit" name="edit_notebook" class="btn btn-primary">Lưu thay đổi</button>
-                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
-                                        </div>
-                                    </form>
-                                </div>
-                            </div>
                         <?php endforeach; ?>
-                    <?php endif; ?>
+                    </div>
                 </div>
-            </div>
-        <?php endif; ?>
-    <?php endforeach; ?>
-
-    <?php if (($selected_group === 'all' || $selected_group === 'none') && (isset($notebooks_by_group[null]) || isset($notebooks_by_group[0]))): ?>
-        <div class="group-card">
-            <div class="group-header">
-                <span class="icon"><i class="bi bi-folder2-open"></i></span>
-                <span class="group-title">Không thuộc nhóm</span>
-            </div>
-            <div class="notebook-grid">
-                <?php foreach (($notebooks_by_group[null] ?? []) + ($notebooks_by_group[0] ?? []) as $nb): ?>
-                    <div class="nb2-card mb-3">
-                        <div class="nb2-header">
-                            <div class="nb2-avatar"><i class="bi bi-journal-text"></i></div>
-                            <div class="flex-grow-1">
-                                <div class="nb2-title">
-                                    <i class="bi bi-journal-text"></i>
-                                    <?= htmlspecialchars($nb['title']) ?>
-                                </div>
-                                <div class="nb2-desc clamp-2">
-                                    <?= $nb['description'] ? nl2br(htmlspecialchars($nb['description'])) : '<span class="text-muted">Chưa có mô tả…</span>' ?>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="nb2-actions">
-                            <a href="study_flashcard.php?notebook_id=<?= $nb['id'] ?>" class="nb2-btn nb2-warn">
-                                <i class="bi bi-journal-richtext"></i> Flashcard
-                            </a>
-                            <a href="study_quiz.php?notebook_id=<?= $nb['id'] ?>" class="nb2-btn nb2-info">
-                                <i class="bi bi-question-circle"></i> Quiz
-                            </a>
-                            <a href="add_vocab.php?notebook_id=<?= $nb['id'] ?>" class="nb2-btn nb2-primary">
-                                <i class="bi bi-pencil-square"></i> Từ vựng
-                            </a>
-
-                            <?php $canGender = !empty($genderReady[(int)$nb['id']]); ?>
-                            <?php if ($canGender): ?>
-                                <a href="study_gender.php?notebook_id=<?= $nb['id'] ?>" class="nb2-btn nb2-dark">
-                                    <i class="bi bi-gender-ambiguous"></i> Giống
-                                </a>
-                            <?php else: ?>
-                                <span class="nb2-btn nb2-gray" style="opacity:.6;pointer-events:none" title="Chưa có danh từ có giống">
-                                    <i class="bi bi-gender-ambiguous"></i> Giống
-                                </span>
-                            <?php endif; ?>
-
-                            <a href="import_excel.php?notebook_id=<?= $nb['id'] ?>" class="nb2-btn nb2-success">
-                                <i class="bi bi-file-earmark-excel"></i> Excel
-                            </a>
-                            <a href="share_notebook.php?notebook_id=<?= $nb['id'] ?>" class="nb2-btn nb2-primary">
-                                <i class="bi bi-share"></i> Chia sẻ
-                            </a>
-                            <a href="#" class="nb2-btn nb2-gray" data-bs-toggle="modal" data-bs-target="#editModal<?= $nb['id'] ?>">
-                                <i class="bi bi-pencil"></i> Sửa
-                            </a>
-                            <a href="?delete=<?= $nb['id'] ?>" class="nb2-btn nb2-danger"
-                               onclick="return confirm('Bạn có chắc chắn muốn xoá sổ tay này?');">
-                                <i class="bi bi-trash"></i> Xoá
-                            </a>
-                        </div>
-
-                        <div class="nb2-footer">
-                            <div class="nb2-meta">
-                                <i class="bi bi-collection"></i>
-                                <?= (int)($counts[(int)$nb['id']] ?? 0) ?> từ
-                                <?php if (!empty($nb['created_at'])): ?> • tạo <?= date('d/m/Y', strtotime($nb['created_at'])) ?><?php endif; ?>
-                            </div>
-                            <div class="nb2-mini">
-                                <a href="#" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#editModal<?= $nb['id'] ?>" title="Sửa">
-                                    <i class="bi bi-pencil"></i>
-                                </a>
-                                <a href="?delete=<?= $nb['id'] ?>" class="btn btn-outline-danger btn-sm"
-                                   onclick="return confirm('Bạn có chắc chắn muốn xoá sổ tay này?');" title="Xoá">
-                                    <i class="bi bi-trash"></i>
-                                </a>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Modal sửa sổ tay -->
-                    <div class="modal fade" id="editModal<?= $nb['id'] ?>" tabindex="-1">
-                        <div class="modal-dialog">
-                            <form method="post" class="modal-content">
-                                <div class="modal-header">
-                                    <h5 class="modal-title">Chỉnh sửa sổ tay</h5>
-                                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                                </div>
-                                <div class="modal-body">
-                                    <input type="hidden" name="notebook_id" value="<?= $nb['id'] ?>">
-                                    <div class="mb-3">
-                                        <label class="form-label">Tiêu đề</label>
-                                        <input type="text" name="title" class="form-control" value="<?= htmlspecialchars($nb['title']) ?>" required>
-                                    </div>
-                                    <div class="mb-3">
-                                        <label class="form-label">Mô tả</label>
-                                        <textarea name="description" class="form-control" rows="3"><?= htmlspecialchars($nb['description']) ?></textarea>
-                                    </div>
-                                    <div class="mb-3">
-                                        <label class="form-label">Nhóm</label>
-                                        <select name="group_id" class="form-select">
-                                            <option value="">-- Không thuộc nhóm --</option>
-                                            <?php foreach ($groups as $gg): ?>
-                                                <option value="<?= $gg['id'] ?>" <?= ($nb['group_id'] == $gg['id']) ? 'selected' : '' ?>><?= htmlspecialchars($gg['name']) ?></option>
-                                            <?php endforeach; ?>
-                                        </select>
-                                    </div>
-                                </div>
-                                <div class="modal-footer">
-                                    <button type="submit" name="edit_notebook" class="btn btn-primary">Lưu thay đổi</button>
-                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-                <?php endforeach; ?>
-            </div>
+            <?php endif; ?>
         </div>
-    <?php endif; ?>
-</div>
-
-<!-- Modal tạo nhóm -->
-<div class="modal fade" id="modalAddGroup" tabindex="-1">
-    <div class="modal-dialog">
-        <form method="post" class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Tạo nhóm mới</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <div class="mb-3">
-                    <label class="form-label">Tên nhóm</label>
-                    <input type="text" name="group_name" class="form-control" required>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="submit" name="add_group" class="btn btn-primary">Tạo nhóm</button>
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
-            </div>
-        </form>
     </div>
-</div>
 
-<!-- Modal tạo sổ tay -->
-<div class="modal fade" id="modalAddNotebook" tabindex="-1">
-    <div class="modal-dialog">
-        <form method="post" class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Tạo sổ tay mới</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <div class="mb-3">
-                    <label class="form-label">Tiêu đề</label>
-                    <input type="text" name="title" class="form-control" required>
+    <!-- Modal tạo nhóm -->
+    <div class="modal fade" id="modalAddGroup" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <form method="post" class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-folder-plus me-2"></i>Tạo nhóm mới</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Đóng"></button>
                 </div>
-                <div class="mb-3">
-                    <label class="form-label">Mô tả</label>
-                    <textarea name="description" class="form-control" rows="2"></textarea>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Tên nhóm</label>
+                        <input type="text" name="group_name" class="form-control" placeholder="Nhập tên nhóm..." required>
+                        <div class="form-text">Ví dụ: Từ vựng cơ bản, Ngữ pháp nâng cao…</div>
+                    </div>
                 </div>
-                <div class="mb-3">
-                    <label class="form-label">Nhóm</label>
-                    <select name="group_id" class="form-select">
-                        <option value="">-- Không thuộc nhóm --</option>
-                        <?php foreach ($groups as $g): ?>
-                            <option value="<?= $g['id'] ?>"><?= htmlspecialchars($g['name']) ?></option>
-                        <?php endforeach; ?>
-                    </select>
+                <div class="modal-footer">
+                    <button type="submit" name="add_group" class="btn btn-primary"><i class="bi bi-plus-circle me-2"></i>Tạo nhóm</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
                 </div>
-            </div>
-            <div class="modal-footer">
-                <button type="submit" name="add_notebook" class="btn btn-success">Tạo sổ tay</button>
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
-            </div>
-        </form>
+            </form>
+        </div>
     </div>
-</div>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    document.querySelectorAll('.group-header').forEach(function(header) {
-        const groupId = header.getAttribute('data-group');
-        const grid = document.getElementById('groupGrid' + groupId);
-        const icon = header.querySelector('.toggle-icon');
-        if (!grid) return;
-        if (icon) icon.style.transform = grid.classList.contains('d-none') ? 'rotate(0deg)' : 'rotate(180deg)';
-        header.addEventListener('click', function(e) {
-            if (e.target.closest('button[type="submit"], .btn-danger, form, .toggle-icon')) return;
-            const isHidden = grid.classList.contains('d-none');
-            grid.classList.toggle('d-none', !isHidden);
-            if (icon) icon.style.transform = isHidden ? 'rotate(180deg)' : 'rotate(0deg)';
-        });
-        if (icon) {
-            icon.addEventListener('click', function(e) {
-                e.stopPropagation();
-                const isHidden = grid.classList.contains('d-none');
-                grid.classList.toggle('d-none', !isHidden);
-                this.style.transform = isHidden ? 'rotate(180deg)' : 'rotate(0deg)';
+    <!-- Modal tạo sổ tay -->
+    <div class="modal fade" id="modalAddNotebook" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <form method="post" class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-journal-plus me-2"></i>Tạo sổ tay mới</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Đóng"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Tiêu đề</label>
+                        <input type="text" name="title" class="form-control" placeholder="Nhập tiêu đề sổ tay..." required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Mô tả</label>
+                        <textarea name="description" class="form-control" rows="3" placeholder="Mô tả ngắn…"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Nhóm</label>
+                        <select name="group_id" class="form-select">
+                            <option value="">-- Không thuộc nhóm --</option>
+                            <?php foreach ($groups as $g): ?>
+                                <option value="<?= $g['id'] ?>"><?= htmlspecialchars($g['name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="submit" name="add_notebook" class="btn btn-success"><i class="bi bi-plus-circle me-2"></i>Tạo sổ tay</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal CHỈNH SỬA dùng chung -->
+    <div class="modal fade" id="editNotebookModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <form method="post" class="modal-content" id="editNotebookForm">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-pencil-square me-2"></i>Chỉnh sửa sổ tay</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Đóng"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" name="notebook_id" id="editNotebookId" value="">
+                    <div class="mb-3">
+                        <label class="form-label">Tiêu đề</label>
+                        <input type="text" name="title" id="editNotebookTitle" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Mô tả</label>
+                        <textarea name="description" id="editNotebookDesc" class="form-control" rows="3"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Nhóm</label>
+                        <select name="group_id" id="editNotebookGroup" class="form-select">
+                            <option value="">-- Không thuộc nhóm --</option>
+                            <?php foreach ($groups as $g): ?>
+                                <option value="<?= $g['id'] ?>"><?= htmlspecialchars($g['name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="submit" name="edit_notebook" class="btn btn-primary">
+                        <i class="bi bi-check-circle me-2"></i>Lưu thay đổi
+                    </button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- libs -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Toggle nhóm
+            document.querySelectorAll('.group-header').forEach(function(header) {
+                const groupId = header.getAttribute('data-group');
+                const grid = document.getElementById('groupGrid' + groupId);
+                const icon = header.querySelector('.toggle-icon');
+                if (!grid) return;
+
+                if (icon) icon.style.transform = grid.classList.contains('d-none') ? 'rotate(0deg)' : 'rotate(180deg)';
+
+                const toggle = () => {
+                    const isHidden = grid.classList.contains('d-none');
+                    if (isHidden) {
+                        grid.classList.remove('d-none');
+                        grid.classList.add('slide-down');
+                        if (icon) icon.style.transform = 'rotate(180deg)';
+                    } else {
+                        grid.classList.add('d-none');
+                        grid.classList.remove('slide-down');
+                        if (icon) icon.style.transform = 'rotate(0deg)';
+                    }
+                };
+
+                header.addEventListener('click', function(e) {
+                    if (e.target.closest('button[type="submit"], .group-delete-btn, form')) return;
+                    toggle();
+                });
+                if (icon) {
+                    icon.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        toggle();
+                    });
+                }
             });
-        }
-    });
-    document.querySelectorAll('form[method="get"] button[type="submit"]').forEach(btn => {
-        btn.addEventListener('click', e => e.stopPropagation());
-    });
-});
-</script>
+
+            // Chặn nổi bọt ở form GET (xoá nhóm)
+            document.querySelectorAll('form[method="get"] button[type="submit"]').forEach(btn => {
+                btn.addEventListener('click', e => e.stopPropagation());
+            });
+
+            // Hover card
+            document.querySelectorAll('.notebook-card').forEach(card => {
+                card.addEventListener('mouseenter', function() {
+                    this.style.transform = 'translateY(-4px)';
+                });
+                card.addEventListener('mouseleave', function() {
+                    this.style.transform = 'translateY(0)';
+                });
+            });
+
+            // Ripple (loại trừ nút mở modal)
+            document.querySelectorAll(
+                '.modern-btn, .action-btn:not([data-bs-toggle="modal"]), .mini-btn:not([data-bs-toggle="modal"])'
+            ).forEach(btn => {
+                btn.style.position = 'relative';
+                btn.style.overflow = 'hidden';
+                btn.addEventListener('click', function(e) {
+                    const ripple = document.createElement('span');
+                    const rect = this.getBoundingClientRect();
+                    const size = Math.max(rect.width, rect.height);
+                    ripple.style.width = ripple.style.height = size + 'px';
+                    ripple.style.left = (e.clientX - rect.left - size / 2) + 'px';
+                    ripple.style.top = (e.clientY - rect.top - size / 2) + 'px';
+                    ripple.classList.add('ripple');
+                    this.appendChild(ripple);
+                    setTimeout(() => ripple.remove(), 600);
+                });
+            });
+
+            // Auto-hide alert
+            setTimeout(function() {
+                const alert = document.querySelector('.modern-alert');
+                if (alert) {
+                    alert.style.opacity = '0';
+                    alert.style.transform = 'translateY(-20px)';
+                    setTimeout(() => alert.remove(), 300);
+                }
+            }, 5000);
+
+            // Modal EDIT: đổ dữ liệu động
+            const editModalEl = document.getElementById('editNotebookModal');
+            if (editModalEl) {
+                editModalEl.addEventListener('show.bs.modal', function(event) {
+                    const btn = event.relatedTarget;
+                    if (!btn) return;
+
+                    const id = btn.getAttribute('data-id') || '';
+                    const title = btn.getAttribute('data-title') || '';
+                    const desc = btn.getAttribute('data-desc') || '';
+                    const group = btn.getAttribute('data-group') ?? '';
+
+                    document.getElementById('editNotebookId').value = id;
+                    document.getElementById('editNotebookTitle').value = title;
+                    document.getElementById('editNotebookDesc').value = desc;
+
+                    const select = document.getElementById('editNotebookGroup');
+                    if (select) {
+                        Array.from(select.options).forEach(opt => {
+                            opt.selected = (opt.value === (group === null ? '' : String(group)));
+                        });
+                    }
+                });
+            }
+        });
+
+        // Ripple CSS runtime
+        const style = document.createElement('style');
+        style.textContent = `
+            .ripple{position:absolute;border-radius:50%;background:rgba(255,255,255,.3);pointer-events:none;transform:scale(0);animation:ripple-animation .6s linear;}
+            @keyframes ripple-animation{to{transform:scale(2);opacity:0;}}
+        `;
+        document.head.appendChild(style);
+    </script>
 </body>
+
 </html>
