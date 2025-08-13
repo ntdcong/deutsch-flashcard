@@ -1,13 +1,9 @@
 <?php
-session_start();
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
 require 'db.php';
 
-// Kiểm tra đăng nhập
-if (!isset($_SESSION['user_id'])) {
-    header('Location: login.php');
-    exit;
-}
-$user_id = $_SESSION['user_id'];
+// Cho phép truy cập công khai bằng token hoặc truy cập riêng tư khi đã đăng nhập
+$user_id = $_SESSION['user_id'] ?? null;
 
 // Xác định hành động từ client (AJAX)
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
@@ -16,18 +12,34 @@ $action = $_POST['action'] ?? $_GET['action'] ?? '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($action, ['get_question', 'submit_answer', 'reset'])) {
     header('Content-Type: application/json');
 
+    $token = $_POST['token'] ?? $_GET['token'] ?? '';
     $notebook_id = (int)($_POST['notebook_id'] ?? $_GET['notebook_id'] ?? 0);
-    $quiz_session_key = 'quiz_data_' . $notebook_id;
 
-    // Kiểm tra quyền sở hữu sổ tay
-    $stmt = $pdo->prepare('SELECT * FROM notebooks WHERE id=? AND user_id=?');
-    $stmt->execute([$notebook_id, $user_id]);
-    $notebook = $stmt->fetch();
-
-    if (!$notebook) {
-        echo json_encode(['error' => 'Không tìm thấy sổ tay hoặc bạn không có quyền truy cập!']);
-        exit;
+    // Xác thực quyền truy cập: token công khai hoặc chủ sở hữu
+    if ($token !== '') {
+        $stmt = $pdo->prepare('SELECT * FROM notebooks WHERE public_token = ? AND is_public = 1');
+        $stmt->execute([$token]);
+        $notebook = $stmt->fetch();
+        if (!$notebook) {
+            echo json_encode(['error' => 'Link không hợp lệ hoặc sổ tay không công khai.']);
+            exit;
+        }
+        $notebook_id = (int)$notebook['id'];
+    } else {
+        if (!$user_id) {
+            echo json_encode(['error' => 'Vui lòng đăng nhập.']);
+            exit;
+        }
+        $stmt = $pdo->prepare('SELECT * FROM notebooks WHERE id=? AND user_id=?');
+        $stmt->execute([$notebook_id, $user_id]);
+        $notebook = $stmt->fetch();
+        if (!$notebook) {
+            echo json_encode(['error' => 'Không tìm thấy sổ tay hoặc bạn không có quyền truy cập!']);
+            exit;
+        }
     }
+
+    $quiz_session_key = 'quiz_data_' . $notebook_id;
 
     // Hàm chuẩn hóa chuỗi để so sánh
     function normalize($str) {
@@ -301,12 +313,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($action, ['get_question', 
 }
 
 // --- Hiển thị trang HTML (GET request thông thường) ---
-$notebook_id = (int)($_GET['notebook_id'] ?? 0);
-$stmt = $pdo->prepare('SELECT * FROM notebooks WHERE id=? AND user_id=?');
-$stmt->execute([$notebook_id, $user_id]);
-$notebook = $stmt->fetch();
-if (!$notebook) {
-    die('Không tìm thấy sổ tay hoặc bạn không có quyền truy cập!');
+$token = $_GET['token'] ?? '';
+if ($token !== '') {
+    // Truy cập công khai bằng token
+    $stmt = $pdo->prepare('SELECT * FROM notebooks WHERE public_token = ? AND is_public = 1');
+    $stmt->execute([$token]);
+    $notebook = $stmt->fetch();
+    if (!$notebook) { die('Link không hợp lệ hoặc sổ tay không công khai!'); }
+    $notebook_id = (int)$notebook['id'];
+} else {
+    // Truy cập riêng tư cần đăng nhập
+    if (!isset($_SESSION['user_id'])) {
+        header('Location: login.php');
+        exit;
+    }
+    $user_id = $_SESSION['user_id'];
+    $notebook_id = (int)($_GET['notebook_id'] ?? 0);
+    $stmt = $pdo->prepare('SELECT * FROM notebooks WHERE id=? AND user_id=?');
+    $stmt->execute([$notebook_id, $user_id]);
+    $notebook = $stmt->fetch();
+    if (!$notebook) { die('Không tìm thấy sổ tay hoặc bạn không có quyền truy cập!'); }
 }
 ?>
 
@@ -482,7 +508,7 @@ if (!$notebook) {
 <body>
 <nav class="navbar navbar-light shadow-sm">
     <div class="container">
-        <a class="navbar-brand" href="dashboard.php">
+        <a class="navbar-brand" href="<?= isset($token) && $token !== '' ? 'public_notebook.php?token=' . urlencode($token) : 'dashboard.php' ?>">
             <i class="bi bi-arrow-left"></i> Quay lại
         </a>
         <span class="navbar-text text-truncate" style="max-width: 200px;">
@@ -564,6 +590,7 @@ if (!$notebook) {
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     const notebookId = <?= json_encode($notebook_id) ?>; // Truyền ID từ PHP sang JS
+    const publicToken = <?= json_encode($token ?? '') ?>;
     if (!notebookId) {
         alert('Thiếu thông tin sổ tay.');
         return;
@@ -723,7 +750,7 @@ document.addEventListener('DOMContentLoaded', function () {
         fetch('study_quiz.php', { // Gửi AJAX đến chính tệp này
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: `action=submit_answer&notebook_id=${notebookId}&user_answer=${encodeURIComponent(userAnswer)}`
+            body: `action=submit_answer&notebook_id=${notebookId}&user_answer=${encodeURIComponent(userAnswer)}${publicToken ? `&token=${encodeURIComponent(publicToken)}` : ''}`
         })
         .then(response => response.json())
         .then(data => {
@@ -743,7 +770,7 @@ document.addEventListener('DOMContentLoaded', function () {
         fetch('study_quiz.php', { // Gửi AJAX đến chính tệp này
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: `action=get_question&notebook_id=${notebookId}`
+            body: `action=get_question&notebook_id=${notebookId}${publicToken ? `&token=${encodeURIComponent(publicToken)}` : ''}`
         })
         .then(response => response.json())
         .then(data => {
@@ -763,7 +790,7 @@ document.addEventListener('DOMContentLoaded', function () {
         fetch('study_quiz.php', { // Gửi AJAX đến chính tệp này
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: `action=get_question&notebook_id=${notebookId}`
+            body: `action=get_question&notebook_id=${notebookId}${publicToken ? `&token=${encodeURIComponent(publicToken)}` : ''}`
         })
         .then(response => response.json())
         .then(data => {
@@ -784,7 +811,7 @@ document.addEventListener('DOMContentLoaded', function () {
         fetch('study_quiz.php', { // Gửi AJAX đến chính tệp này
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: `action=reset&notebook_id=${notebookId}`
+            body: `action=reset&notebook_id=${notebookId}${publicToken ? `&token=${encodeURIComponent(publicToken)}` : ''}`
         })
         .then(response => response.json())
         .then(data => {

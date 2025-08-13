@@ -1,28 +1,49 @@
 <?php
-session_start();
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
 require 'db.php';
-if (!isset($_SESSION['user_id'])) {
-    header('Location: login.php');
-    exit;
-}
-$user_id = $_SESSION['user_id'];
-$notebook_id = (int)($_GET['notebook_id'] ?? 0);
-// Kiểm tra quyền sở hữu sổ tay
-$stmt = $pdo->prepare('SELECT * FROM notebooks WHERE id=? AND user_id=?');
-$stmt->execute([$notebook_id, $user_id]);
-$notebook = $stmt->fetch();
-if (!$notebook) {
-    die('Không tìm thấy sổ tay hoặc bạn không có quyền truy cập!');
+
+// Hỗ trợ chế độ công khai bằng token
+$token = $_GET['token'] ?? '';
+if ($token !== '') {
+    $stmt = $pdo->prepare('SELECT * FROM notebooks WHERE public_token = ? AND is_public = 1');
+    $stmt->execute([$token]);
+    $notebook = $stmt->fetch();
+    if (!$notebook) { die('Link không hợp lệ hoặc sổ tay không công khai!'); }
+    $notebook_id = (int)$notebook['id'];
+    $user_id = $_SESSION['user_id'] ?? null; // Không bắt buộc đăng nhập
+} else {
+    if (!isset($_SESSION['user_id'])) {
+        header('Location: login.php');
+        exit;
+    }
+    $user_id = (int)$_SESSION['user_id'];
+    $notebook_id = (int)($_GET['notebook_id'] ?? 0);
+    // Kiểm tra quyền sở hữu sổ tay
+    $stmt = $pdo->prepare('SELECT * FROM notebooks WHERE id=? AND user_id=?');
+    $stmt->execute([$notebook_id, $user_id]);
+    $notebook = $stmt->fetch();
+    if (!$notebook) { die('Không tìm thấy sổ tay hoặc bạn không có quyền truy cập!'); }
 }
 // Lấy tất cả từ vựng một lần để tải trước
-$stmt = $pdo->prepare('SELECT v.*, ls.status FROM vocabularies v
-    LEFT JOIN learning_status ls ON v.id = ls.vocab_id AND ls.user_id = ?
-    WHERE v.notebook_id = ? ORDER BY v.created_at DESC');
-$stmt->execute([$user_id, $notebook_id]);
+if ($user_id) {
+    $stmt = $pdo->prepare('SELECT v.*, ls.status FROM vocabularies v
+        LEFT JOIN learning_status ls ON v.id = ls.vocab_id AND ls.user_id = ?
+        WHERE v.notebook_id = ? ORDER BY v.created_at DESC');
+    $stmt->execute([$user_id, $notebook_id]);
+} else {
+    // Truy cập công khai: không có trạng thái cá nhân
+    $stmt = $pdo->prepare('SELECT v.*, NULL as status FROM vocabularies v WHERE v.notebook_id = ? ORDER BY v.created_at DESC');
+    $stmt->execute([$notebook_id]);
+}
 $all_vocabs = $stmt->fetchAll();
 // API để cập nhật trạng thái vẫn giữ nguyên
 if (isset($_GET['action']) && $_GET['action'] === 'update_status' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     header('Content-Type: application/json');
+    // Chỉ cập nhật khi có đăng nhập (không cho public ghi trạng thái)
+    if (!isset($_SESSION['user_id'])) {
+        echo json_encode(['success' => false, 'message' => 'Chỉ người đăng nhập mới cập nhật trạng thái được.']);
+        exit;
+    }
     $vocab_id = (int)($_POST['vocab_id'] ?? 0);
     $status = $_POST['status'] === 'known' ? 'known' : 'unknown';
     if ($vocab_id > 0) {
@@ -730,7 +751,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'update_status' && $_SERVER['R
 <body>
     <nav class="navbar navbar-light shadow-sm">
         <div class="container">
-            <a class="navbar-brand" href="dashboard.php">
+            <a class="navbar-brand" href="<?= isset($token) && $token !== '' ? 'public_notebook.php?token=' . urlencode($token) : 'dashboard.php' ?>">
                 <i class="bi bi-arrow-left"></i> Quay lại
             </a>
             <span class="navbar-text text-truncate" style="max-width: 200px;">

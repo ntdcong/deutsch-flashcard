@@ -308,7 +308,7 @@ if (isset($_GET['edit'])) {
 </head>
 <body>
 
-<nav class="navbar navbar-light">
+<nav class="navbar navbar-light sticky-top">
     <div class="container-fluid">
         <a class="navbar-brand" href="dashboard.php">
             <i class="bi bi-arrow-left"></i> Trở lại

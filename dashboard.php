@@ -1,5 +1,5 @@
 <?php
-session_start();
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
 require 'db.php';
 if (!isset($_SESSION['user_id'])) {
     header('Location: login.php');
@@ -986,7 +986,7 @@ $selected_group = isset($_GET['group']) ? $_GET['group'] : 'all';
                                                 <i class="bi bi-collection"></i>
                                                 <span><?= (int)($counts[(int)$nb['id']] ?? 0) ?> từ<?php if (!empty($nb['created_at'])): ?> • tạo <?= date('d/m/Y', strtotime($nb['created_at'])) ?><?php endif; ?></span>
                                             </div>
-                                            <div class="notebook-actions-mini">
+                                             <div class="notebook-actions-mini">
                                                 <button
                                                     type="button"
                                                     class="mini-btn"
@@ -1088,7 +1088,7 @@ $selected_group = isset($_GET['group']) ? $_GET['group'] : 'all';
                                         <i class="bi bi-collection"></i>
                                         <span><?= (int)($counts[(int)$nb['id']] ?? 0) ?> từ<?php if (!empty($nb['created_at'])): ?> • tạo <?= date('d/m/Y', strtotime($nb['created_at'])) ?><?php endif; ?></span>
                                     </div>
-                                    <div class="notebook-actions-mini">
+                                     <div class="notebook-actions-mini">
                                         <button
                                             type="button"
                                             class="mini-btn"
@@ -1101,6 +1101,9 @@ $selected_group = isset($_GET['group']) ? $_GET['group'] : 'all';
                                             title="Sửa">
                                             <i class="bi bi-pencil"></i>
                                         </button>
+                                         <a href="share_notebook.php?notebook_id=<?= $nb['id'] ?>" class="mini-btn" title="Chia sẻ">
+                                             <i class="bi bi-share"></i>
+                                         </a>
                                         <a href="?delete=<?= $nb['id'] ?>" class="mini-btn danger" onclick="return confirm('Bạn có chắc chắn muốn xoá sổ tay này?');" title="Xoá">
                                             <i class="bi bi-trash"></i>
                                         </a>

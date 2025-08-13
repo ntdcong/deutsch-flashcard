@@ -1,14 +1,10 @@
 <?php
 // study_gender.php — Quiz Giống (der/die/das) | UI & flow giống study_quiz.php
-session_start();
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
 require 'db.php';
 
-// Kiểm tra đăng nhập
-if (!isset($_SESSION['user_id'])) {
-    header('Location: login.php');
-    exit;
-}
-$user_id = (int)$_SESSION['user_id'];
+// Cho phép public token hoặc login
+$user_id = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : null;
 
 // Xác định action từ client (AJAX)
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
@@ -38,17 +34,23 @@ function getNextVocabIndex(&$quiz_data, &$vocabs) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($action, ['get_question', 'submit_answer', 'reset'], true)) {
     header('Content-Type: application/json; charset=utf-8');
 
+    $token = $_POST['token'] ?? $_GET['token'] ?? '';
     $notebook_id = (int)($_POST['notebook_id'] ?? $_GET['notebook_id'] ?? 0);
-    $quiz_session_key = 'gender_quiz_' . $notebook_id;
-
-    // Kiểm tra quyền sổ tay
-    $stmt = $pdo->prepare('SELECT * FROM notebooks WHERE id=? AND user_id=?');
-    $stmt->execute([$notebook_id, $user_id]);
-    $notebook = $stmt->fetch();
-    if (!$notebook) {
-        echo json_encode(['error' => 'Không tìm thấy sổ tay hoặc bạn không có quyền truy cập!']);
-        exit;
+    // Xác thực quyền truy cập
+    if ($token !== '') {
+        $stmt = $pdo->prepare('SELECT * FROM notebooks WHERE public_token = ? AND is_public = 1');
+        $stmt->execute([$token]);
+        $notebook = $stmt->fetch();
+        if (!$notebook) { echo json_encode(['error' => 'Link không hợp lệ hoặc sổ tay không công khai!']); exit; }
+        $notebook_id = (int)$notebook['id'];
+    } else {
+        if (!$user_id) { echo json_encode(['error' => 'Vui lòng đăng nhập.']); exit; }
+        $stmt = $pdo->prepare('SELECT * FROM notebooks WHERE id=? AND user_id=?');
+        $stmt->execute([$notebook_id, $user_id]);
+        $notebook = $stmt->fetch();
+        if (!$notebook) { echo json_encode(['error' => 'Không tìm thấy sổ tay hoặc bạn không có quyền truy cập!']); exit; }
     }
+    $quiz_session_key = 'gender_quiz_' . $notebook_id;
 
     // --- GET QUESTION ---
     if ($action === 'get_question') {
@@ -248,11 +250,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($action, ['get_question', 
 }
 
 // --- Render trang (GET) ---
-$notebook_id = (int)($_GET['notebook_id'] ?? 0);
-$stmt = $pdo->prepare('SELECT * FROM notebooks WHERE id=? AND user_id=?');
-$stmt->execute([$notebook_id, $user_id]);
-$notebook = $stmt->fetch();
-if (!$notebook) { die('Không tìm thấy sổ tay hoặc bạn không có quyền truy cập!'); }
+$token = $_GET['token'] ?? '';
+if ($token !== '') {
+    $stmt = $pdo->prepare('SELECT * FROM notebooks WHERE public_token = ? AND is_public = 1');
+    $stmt->execute([$token]);
+    $notebook = $stmt->fetch();
+    if (!$notebook) { die('Link không hợp lệ hoặc sổ tay không công khai!'); }
+    $notebook_id = (int)$notebook['id'];
+} else {
+    if (!$user_id) { header('Location: login.php'); exit; }
+    $notebook_id = (int)($_GET['notebook_id'] ?? 0);
+    $stmt = $pdo->prepare('SELECT * FROM notebooks WHERE id=? AND user_id=?');
+    $stmt->execute([$notebook_id, $user_id]);
+    $notebook = $stmt->fetch();
+    if (!$notebook) { die('Không tìm thấy sổ tay hoặc bạn không có quyền truy cập!'); }
+}
 ?>
 <!DOCTYPE html>
 <html lang="vi">
@@ -316,7 +328,7 @@ if (!$notebook) { die('Không tìm thấy sổ tay hoặc bạn không có quy�
 <body>
 <nav class="navbar navbar-light shadow-sm">
     <div class="container">
-        <a class="navbar-brand" href="dashboard.php">
+        <a class="navbar-brand" href="<?= isset($token) && $token !== '' ? 'public_notebook.php?token=' . urlencode($token) : 'dashboard.php' ?>">
             <i class="bi bi-arrow-left"></i> Quay lại
         </a>
         <span class="navbar-text text-truncate" style="max-width: 200px;">
@@ -373,6 +385,7 @@ if (!$notebook) { die('Không tìm thấy sổ tay hoặc bạn không có quy�
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     const notebookId = <?= json_encode($notebook_id) ?>;
+    const publicToken = <?= json_encode($token ?? '') ?>;
     if (!notebookId) { alert('Thiếu thông tin sổ tay.'); return; }
 
     const quizArea = document.getElementById('quiz-area');
@@ -488,7 +501,7 @@ document.addEventListener('DOMContentLoaded', function () {
         fetch('study_gender.php', {
             method: 'POST',
             headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-            body: `action=submit_answer&notebook_id=${notebookId}&user_answer=${encodeURIComponent(userAnswer)}`
+            body: `action=submit_answer&notebook_id=${notebookId}&user_answer=${encodeURIComponent(userAnswer)}${publicToken ? `&token=${encodeURIComponent(publicToken)}` : ''}`
         })
         .then(r => r.json())
         .then(data => {
@@ -502,7 +515,7 @@ document.addEventListener('DOMContentLoaded', function () {
         fetch('study_gender.php', {
             method: 'POST',
             headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-            body: `action=get_question&notebook_id=${notebookId}`
+            body: `action=get_question&notebook_id=${notebookId}${publicToken ? `&token=${encodeURIComponent(publicToken)}` : ''}`
         })
         .then(r => r.json())
         .then(data => {
@@ -516,7 +529,7 @@ document.addEventListener('DOMContentLoaded', function () {
         fetch('study_gender.php', {
             method: 'POST',
             headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-            body: `action=get_question&notebook_id=${notebookId}`
+            body: `action=get_question&notebook_id=${notebookId}${publicToken ? `&token=${encodeURIComponent(publicToken)}` : ''}`
         })
         .then(r => r.json())
         .then(data => {
@@ -530,7 +543,7 @@ document.addEventListener('DOMContentLoaded', function () {
         fetch('study_gender.php', {
             method: 'POST',
             headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-            body: `action=reset&notebook_id=${notebookId}`
+            body: `action=reset&notebook_id=${notebookId}${publicToken ? `&token=${encodeURIComponent(publicToken)}` : ''}`
         })
         .then(r => r.json())
         .then(data => { if (data.success) loadInitialQuestion(); })
